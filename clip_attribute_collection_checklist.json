@@ -1,0 +1,875 @@
+{
+  "name": "Chinese-CLIP 监控属性颜色数据搜集清单",
+  "purpose": "补充颜色-部位绑定数据，提升文搜图中上衣、裤子、头盔、背包、鞋子、电动车、挡风被等属性的召回和绑定能力。",
+  "collection_rules": [
+    "优先选择主体清晰、无遮挡、目标属性颜色可见的 crop 图。",
+    "一张图尽量只对应一个主目标；多人图需要裁成单目标 crop，或者只标主目标。",
+    "尽量少收背景复杂、颜色不确定、属性被遮挡的图。",
+    "每张图建议标 6-10 条 query，包括单属性 query 和组合属性 query。",
+    "验证集不要大量自动扩充，最好保留人工真实 query。",
+    "P1 优先完成，P2 其次，P3 专门用于解决颜色归属混淆，P4 可选。"
+  ],
+  "annotation_template": [
+    "戴{颜色}头盔的人",
+    "穿{颜色}上衣的人",
+    "穿{颜色}裤子的人",
+    "穿{颜色}鞋子的人",
+    "背{颜色}背包的人",
+    "骑{颜色}电动车的人",
+    "骑带{颜色}挡风被电动车的人",
+    "戴{头盔颜色}头盔穿{上衣颜色}上衣的人",
+    "穿{上衣颜色}上衣{裤子颜色}裤子的人",
+    "穿{上衣颜色}上衣骑{电动车颜色}电动车的人"
+  ],
+  "items": [
+    {
+      "id": 1,
+      "priority": "P1",
+      "category": "头盔颜色",
+      "attribute": "头盔",
+      "color": "绿色",
+      "target_images": "30-50",
+      "queries": [
+        "戴绿色头盔的人",
+        "戴绿色头盔骑电动车的人",
+        "穿黑色上衣戴绿色头盔的人",
+        "戴绿色头盔骑白色电动车的人"
+      ],
+      "note": "少见颜色，优先补"
+    },
+    {
+      "id": 2,
+      "priority": "P1",
+      "category": "头盔颜色",
+      "attribute": "头盔",
+      "color": "紫色",
+      "target_images": "30-50",
+      "queries": [
+        "戴紫色头盔的人",
+        "戴紫色头盔骑电动车的人",
+        "穿黑色上衣戴紫色头盔的人"
+      ],
+      "note": "少见颜色，优先补"
+    },
+    {
+      "id": 3,
+      "priority": "P1",
+      "category": "头盔颜色",
+      "attribute": "头盔",
+      "color": "橙色",
+      "target_images": "30-50",
+      "queries": [
+        "戴橙色头盔的人",
+        "戴橙色头盔骑电动车的人",
+        "穿黑色上衣戴橙色头盔的人"
+      ],
+      "note": "少见颜色，优先补"
+    },
+    {
+      "id": 4,
+      "priority": "P1",
+      "category": "头盔颜色",
+      "attribute": "头盔",
+      "color": "棕色",
+      "target_images": "30-50",
+      "queries": [
+        "戴棕色头盔的人",
+        "戴棕色头盔骑电动车的人"
+      ],
+      "note": "少见颜色，优先补"
+    },
+    {
+      "id": 5,
+      "priority": "P1",
+      "category": "头盔颜色",
+      "attribute": "头盔",
+      "color": "红色",
+      "target_images": "30-50",
+      "queries": [
+        "戴红色头盔的人",
+        "戴红色头盔骑电动车的人",
+        "穿黑色上衣戴红色头盔的人"
+      ],
+      "note": "重要颜色"
+    },
+    {
+      "id": 6,
+      "priority": "P1",
+      "category": "头盔颜色",
+      "attribute": "头盔",
+      "color": "灰色",
+      "target_images": "30-50",
+      "queries": [
+        "戴灰色头盔的人",
+        "戴灰色头盔骑电动车的人"
+      ],
+      "note": "容易和白/黑混淆"
+    },
+    {
+      "id": 7,
+      "priority": "P1",
+      "category": "背包颜色",
+      "attribute": "背包",
+      "color": "红色",
+      "target_images": "30-50",
+      "queries": [
+        "背红色背包的人",
+        "穿黑色上衣背红色背包的人",
+        "骑电动车背红色背包的人"
+      ],
+      "note": "背包颜色绑定重点"
+    },
+    {
+      "id": 8,
+      "priority": "P1",
+      "category": "背包颜色",
+      "attribute": "背包",
+      "color": "绿色",
+      "target_images": "30-50",
+      "queries": [
+        "背绿色背包的人",
+        "穿黑色上衣背绿色背包的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 9,
+      "priority": "P1",
+      "category": "背包颜色",
+      "attribute": "背包",
+      "color": "粉色",
+      "target_images": "30-50",
+      "queries": [
+        "背粉色背包的人",
+        "穿黑色上衣背粉色背包的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 10,
+      "priority": "P1",
+      "category": "背包颜色",
+      "attribute": "背包",
+      "color": "蓝色",
+      "target_images": "30-50",
+      "queries": [
+        "背蓝色背包的人",
+        "穿白色上衣背蓝色背包的人"
+      ],
+      "note": "常用颜色但需要绑定"
+    },
+    {
+      "id": 11,
+      "priority": "P1",
+      "category": "背包颜色",
+      "attribute": "背包",
+      "color": "黄色",
+      "target_images": "30-50",
+      "queries": [
+        "背黄色背包的人",
+        "穿黑色上衣背黄色背包的人"
+      ],
+      "note": "醒目颜色，建议补"
+    },
+    {
+      "id": 12,
+      "priority": "P1",
+      "category": "背包颜色",
+      "attribute": "背包",
+      "color": "紫色",
+      "target_images": "30-50",
+      "queries": [
+        "背紫色背包的人",
+        "穿黑色上衣背紫色背包的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 13,
+      "priority": "P1",
+      "category": "背包颜色",
+      "attribute": "背包",
+      "color": "橙色",
+      "target_images": "30-50",
+      "queries": [
+        "背橙色背包的人",
+        "穿黑色上衣背橙色背包的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 14,
+      "priority": "P1",
+      "category": "鞋子颜色",
+      "attribute": "鞋子",
+      "color": "红色",
+      "target_images": "20-30",
+      "queries": [
+        "穿红色鞋子的人",
+        "穿黑色裤子红色鞋子的人"
+      ],
+      "note": "小目标属性，需清晰可见"
+    },
+    {
+      "id": 15,
+      "priority": "P1",
+      "category": "鞋子颜色",
+      "attribute": "鞋子",
+      "color": "蓝色",
+      "target_images": "20-30",
+      "queries": [
+        "穿蓝色鞋子的人",
+        "穿黑色裤子蓝色鞋子的人"
+      ],
+      "note": "小目标属性，需清晰可见"
+    },
+    {
+      "id": 16,
+      "priority": "P1",
+      "category": "鞋子颜色",
+      "attribute": "鞋子",
+      "color": "黄色",
+      "target_images": "20-30",
+      "queries": [
+        "穿黄色鞋子的人",
+        "穿黑色裤子黄色鞋子的人"
+      ],
+      "note": "小目标属性，需清晰可见"
+    },
+    {
+      "id": 17,
+      "priority": "P1",
+      "category": "鞋子颜色",
+      "attribute": "鞋子",
+      "color": "绿色",
+      "target_images": "20-30",
+      "queries": [
+        "穿绿色鞋子的人",
+        "穿黑色裤子绿色鞋子的人"
+      ],
+      "note": "小目标属性，需清晰可见"
+    },
+    {
+      "id": 18,
+      "priority": "P1",
+      "category": "鞋子颜色",
+      "attribute": "鞋子",
+      "color": "粉色",
+      "target_images": "20-30",
+      "queries": [
+        "穿粉色鞋子的人",
+        "穿黑色裤子粉色鞋子的人"
+      ],
+      "note": "小目标属性，需清晰可见"
+    },
+    {
+      "id": 19,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "红色",
+      "target_images": "30-50",
+      "queries": [
+        "骑红色电动车的人",
+        "穿黑色上衣骑红色电动车的人",
+        "戴白色头盔骑红色电动车的人"
+      ],
+      "note": "容易和红衣服混淆"
+    },
+    {
+      "id": 20,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "蓝色",
+      "target_images": "30-50",
+      "queries": [
+        "骑蓝色电动车的人",
+        "穿白色上衣骑蓝色电动车的人"
+      ],
+      "note": "容易和蓝衣服混淆"
+    },
+    {
+      "id": 21,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "绿色",
+      "target_images": "30-50",
+      "queries": [
+        "骑绿色电动车的人",
+        "穿黑色上衣骑绿色电动车的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 22,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "黄色",
+      "target_images": "30-50",
+      "queries": [
+        "骑黄色电动车的人",
+        "穿黑色上衣骑黄色电动车的人"
+      ],
+      "note": "容易和黄色衣服/头盔混淆"
+    },
+    {
+      "id": 23,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "粉色",
+      "target_images": "30-50",
+      "queries": [
+        "骑粉色电动车的人",
+        "穿黑色上衣骑粉色电动车的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 24,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "紫色",
+      "target_images": "30-50",
+      "queries": [
+        "骑紫色电动车的人",
+        "穿黑色上衣骑紫色电动车的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 25,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "橙色",
+      "target_images": "30-50",
+      "queries": [
+        "骑橙色电动车的人",
+        "穿黑色上衣骑橙色电动车的人"
+      ],
+      "note": "少见颜色"
+    },
+    {
+      "id": 26,
+      "priority": "P1",
+      "category": "电动车颜色",
+      "attribute": "电动车",
+      "color": "灰色",
+      "target_images": "30-50",
+      "queries": [
+        "骑灰色电动车的人",
+        "穿黑色上衣骑灰色电动车的人"
+      ],
+      "note": "容易和白/黑电动车混淆"
+    },
+    {
+      "id": 27,
+      "priority": "P1",
+      "category": "挡风被颜色",
+      "attribute": "挡风被",
+      "color": "蓝色",
+      "target_images": "20-30",
+      "queries": [
+        "骑带蓝色挡风被电动车的人",
+        "电动车上有蓝色挡风被的人"
+      ],
+      "note": "人车合并框强属性"
+    },
+    {
+      "id": 28,
+      "priority": "P1",
+      "category": "挡风被颜色",
+      "attribute": "挡风被",
+      "color": "黄色",
+      "target_images": "20-30",
+      "queries": [
+        "骑带黄色挡风被电动车的人",
+        "电动车上有黄色挡风被的人"
+      ],
+      "note": "人车合并框强属性"
+    },
+    {
+      "id": 29,
+      "priority": "P1",
+      "category": "挡风被颜色",
+      "attribute": "挡风被",
+      "color": "绿色",
+      "target_images": "20-30",
+      "queries": [
+        "骑带绿色挡风被电动车的人",
+        "电动车上有绿色挡风被的人"
+      ],
+      "note": "人车合并框强属性"
+    },
+    {
+      "id": 30,
+      "priority": "P1",
+      "category": "挡风被颜色",
+      "attribute": "挡风被",
+      "color": "粉色",
+      "target_images": "20-30",
+      "queries": [
+        "骑带粉色挡风被电动车的人",
+        "电动车上有粉色挡风被的人"
+      ],
+      "note": "人车合并框强属性"
+    },
+    {
+      "id": 31,
+      "priority": "P1",
+      "category": "挡风被颜色",
+      "attribute": "挡风被",
+      "color": "紫色",
+      "target_images": "20-30",
+      "queries": [
+        "骑带紫色挡风被电动车的人",
+        "电动车上有紫色挡风被的人"
+      ],
+      "note": "人车合并框强属性"
+    },
+    {
+      "id": 32,
+      "priority": "P1",
+      "category": "挡风被颜色",
+      "attribute": "挡风被",
+      "color": "灰色",
+      "target_images": "20-30",
+      "queries": [
+        "骑带灰色挡风被电动车的人",
+        "电动车上有灰色挡风被的人"
+      ],
+      "note": "人车合并框强属性"
+    },
+    {
+      "id": 33,
+      "priority": "P2",
+      "category": "上衣少见颜色",
+      "attribute": "上衣",
+      "color": "绿色",
+      "target_images": "30-80",
+      "queries": [
+        "穿绿色上衣的人",
+        "穿绿色上衣黑色裤子的人"
+      ],
+      "note": "补少见上衣颜色"
+    },
+    {
+      "id": 34,
+      "priority": "P2",
+      "category": "上衣少见颜色",
+      "attribute": "上衣",
+      "color": "粉色",
+      "target_images": "30-80",
+      "queries": [
+        "穿粉色上衣的人",
+        "穿粉色上衣黑色裤子的人"
+      ],
+      "note": "补少见上衣颜色"
+    },
+    {
+      "id": 35,
+      "priority": "P2",
+      "category": "上衣少见颜色",
+      "attribute": "上衣",
+      "color": "紫色",
+      "target_images": "30-80",
+      "queries": [
+        "穿紫色上衣的人",
+        "穿紫色上衣黑色裤子的人"
+      ],
+      "note": "补少见上衣颜色"
+    },
+    {
+      "id": 36,
+      "priority": "P2",
+      "category": "上衣少见颜色",
+      "attribute": "上衣",
+      "color": "橙色",
+      "target_images": "30-80",
+      "queries": [
+        "穿橙色上衣的人",
+        "穿橙色上衣黑色裤子的人"
+      ],
+      "note": "补少见上衣颜色"
+    },
+    {
+      "id": 37,
+      "priority": "P2",
+      "category": "上衣少见颜色",
+      "attribute": "上衣",
+      "color": "棕色",
+      "target_images": "30-80",
+      "queries": [
+        "穿棕色上衣的人",
+        "穿棕色上衣黑色裤子的人"
+      ],
+      "note": "补少见上衣颜色"
+    },
+    {
+      "id": 38,
+      "priority": "P2",
+      "category": "裤子少见颜色",
+      "attribute": "裤子",
+      "color": "绿色",
+      "target_images": "30-50",
+      "queries": [
+        "穿绿色裤子的人",
+        "穿黑色上衣绿色裤子的人"
+      ],
+      "note": "补少见裤子颜色"
+    },
+    {
+      "id": 39,
+      "priority": "P2",
+      "category": "裤子少见颜色",
+      "attribute": "裤子",
+      "color": "粉色",
+      "target_images": "30-50",
+      "queries": [
+        "穿粉色裤子的人",
+        "穿黑色上衣粉色裤子的人"
+      ],
+      "note": "补少见裤子颜色"
+    },
+    {
+      "id": 40,
+      "priority": "P2",
+      "category": "裤子少见颜色",
+      "attribute": "裤子",
+      "color": "紫色",
+      "target_images": "30-50",
+      "queries": [
+        "穿紫色裤子的人",
+        "穿黑色上衣紫色裤子的人"
+      ],
+      "note": "补少见裤子颜色"
+    },
+    {
+      "id": 41,
+      "priority": "P2",
+      "category": "裤子少见颜色",
+      "attribute": "裤子",
+      "color": "橙色",
+      "target_images": "30-50",
+      "queries": [
+        "穿橙色裤子的人",
+        "穿黑色上衣橙色裤子的人"
+      ],
+      "note": "补少见裤子颜色"
+    },
+    {
+      "id": 42,
+      "priority": "P2",
+      "category": "裤子少见颜色",
+      "attribute": "裤子",
+      "color": "棕色",
+      "target_images": "30-50",
+      "queries": [
+        "穿棕色裤子的人",
+        "穿黑色上衣棕色裤子的人"
+      ],
+      "note": "补少见裤子颜色"
+    },
+    {
+      "id": 43,
+      "priority": "P3",
+      "category": "上衣vs裤子反向组合",
+      "attribute": "组合属性",
+      "color": "黑色上衣 + 白色裤子",
+      "target_images": "20-30",
+      "queries": [
+        "穿黑色上衣白色裤子的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 44,
+      "priority": "P3",
+      "category": "上衣vs裤子反向组合",
+      "attribute": "组合属性",
+      "color": "白色上衣 + 黑色裤子",
+      "target_images": "20-30",
+      "queries": [
+        "穿白色上衣黑色裤子的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 45,
+      "priority": "P3",
+      "category": "上衣vs裤子反向组合",
+      "attribute": "组合属性",
+      "color": "蓝色上衣 + 黑色裤子",
+      "target_images": "20-30",
+      "queries": [
+        "穿蓝色上衣黑色裤子的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 46,
+      "priority": "P3",
+      "category": "上衣vs裤子反向组合",
+      "attribute": "组合属性",
+      "color": "黑色上衣 + 蓝色裤子",
+      "target_images": "20-30",
+      "queries": [
+        "穿黑色上衣蓝色裤子的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 47,
+      "priority": "P3",
+      "category": "上衣vs裤子反向组合",
+      "attribute": "组合属性",
+      "color": "红色上衣 + 黑色裤子",
+      "target_images": "20-30",
+      "queries": [
+        "穿红色上衣黑色裤子的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 48,
+      "priority": "P3",
+      "category": "上衣vs裤子反向组合",
+      "attribute": "组合属性",
+      "color": "黑色上衣 + 红色裤子",
+      "target_images": "20-30",
+      "queries": [
+        "穿黑色上衣红色裤子的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 49,
+      "priority": "P3",
+      "category": "头盔vs上衣组合",
+      "attribute": "组合属性",
+      "color": "红色头盔 + 黑色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "戴红色头盔穿黑色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 50,
+      "priority": "P3",
+      "category": "头盔vs上衣组合",
+      "attribute": "组合属性",
+      "color": "黑色头盔 + 红色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "戴黑色头盔穿红色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 51,
+      "priority": "P3",
+      "category": "头盔vs上衣组合",
+      "attribute": "组合属性",
+      "color": "蓝色头盔 + 白色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "戴蓝色头盔穿白色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 52,
+      "priority": "P3",
+      "category": "头盔vs上衣组合",
+      "attribute": "组合属性",
+      "color": "白色头盔 + 蓝色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "戴白色头盔穿蓝色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 53,
+      "priority": "P3",
+      "category": "背包vs上衣组合",
+      "attribute": "组合属性",
+      "color": "红色背包 + 黑色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "背红色背包穿黑色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 54,
+      "priority": "P3",
+      "category": "背包vs上衣组合",
+      "attribute": "组合属性",
+      "color": "黑色背包 + 红色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "背黑色背包穿红色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 55,
+      "priority": "P3",
+      "category": "背包vs上衣组合",
+      "attribute": "组合属性",
+      "color": "蓝色背包 + 白色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "背蓝色背包穿白色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 56,
+      "priority": "P3",
+      "category": "背包vs上衣组合",
+      "attribute": "组合属性",
+      "color": "白色背包 + 蓝色上衣",
+      "target_images": "20-30",
+      "queries": [
+        "背白色背包穿蓝色上衣的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 57,
+      "priority": "P3",
+      "category": "上衣vs电动车组合",
+      "attribute": "组合属性",
+      "color": "红色上衣 + 黑色电动车",
+      "target_images": "20-30",
+      "queries": [
+        "穿红色上衣骑黑色电动车的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 58,
+      "priority": "P3",
+      "category": "上衣vs电动车组合",
+      "attribute": "组合属性",
+      "color": "黑色上衣 + 红色电动车",
+      "target_images": "20-30",
+      "queries": [
+        "穿黑色上衣骑红色电动车的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 59,
+      "priority": "P3",
+      "category": "上衣vs电动车组合",
+      "attribute": "组合属性",
+      "color": "蓝色上衣 + 白色电动车",
+      "target_images": "20-30",
+      "queries": [
+        "穿蓝色上衣骑白色电动车的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 60,
+      "priority": "P3",
+      "category": "上衣vs电动车组合",
+      "attribute": "组合属性",
+      "color": "白色上衣 + 蓝色电动车",
+      "target_images": "20-30",
+      "queries": [
+        "穿白色上衣骑蓝色电动车的人"
+      ],
+      "note": "专门解决颜色-部位绑定混淆"
+    },
+    {
+      "id": 61,
+      "priority": "P4",
+      "category": "行为属性",
+      "attribute": "抽烟",
+      "color": "",
+      "target_images": "20-50",
+      "queries": [
+        "抽烟的人",
+        "穿黑色上衣抽烟的人"
+      ],
+      "note": "可选补充，低于颜色属性优先级"
+    },
+    {
+      "id": 62,
+      "priority": "P4",
+      "category": "行为属性",
+      "attribute": "打电话",
+      "color": "",
+      "target_images": "20-50",
+      "queries": [
+        "打电话的人",
+        "穿白色上衣打电话的人",
+        "骑蓝色电动车打电话的人"
+      ],
+      "note": "可选补充，低于颜色属性优先级"
+    },
+    {
+      "id": 63,
+      "priority": "P4",
+      "category": "行为属性",
+      "attribute": "看手机",
+      "color": "",
+      "target_images": "20-50",
+      "queries": [
+        "看手机的人",
+        "穿黑色上衣看手机的人"
+      ],
+      "note": "可选补充，低于颜色属性优先级"
+    },
+    {
+      "id": 64,
+      "priority": "P4",
+      "category": "行为属性",
+      "attribute": "撑伞",
+      "color": "",
+      "target_images": "20-50",
+      "queries": [
+        "撑伞的人",
+        "拿黑色雨伞的人",
+        "拿蓝色雨伞的人"
+      ],
+      "note": "可选补充，低于颜色属性优先级"
+    },
+    {
+      "id": 65,
+      "priority": "P4",
+      "category": "手持物颜色",
+      "attribute": "红色袋子",
+      "color": "",
+      "target_images": "20-50",
+      "queries": [
+        "拿红色袋子的人",
+        "穿黑色上衣拿红色袋子的人"
+      ],
+      "note": "可选补充，低于颜色属性优先级"
+    },
+    {
+      "id": 66,
+      "priority": "P4",
+      "category": "手持物颜色",
+      "attribute": "蓝色袋子",
+      "color": "",
+      "target_images": "20-50",
+      "queries": [
+        "拿蓝色袋子的人",
+        "穿白色上衣拿蓝色袋子的人"
+      ],
+      "note": "可选补充，低于颜色属性优先级"
+    }
+  ]
+}
