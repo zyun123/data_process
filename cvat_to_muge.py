@@ -179,13 +179,7 @@ def write_split(split_name: str, rows: List[Dict], output_dir: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    # input_dirs = [Path(p).expanduser().resolve() for p in args.inputs]
-    input_dirs = [
-        Path("/home/zy/Downloads/data_process/cvat_data/task_2026-04-29").expanduser().resolve(),
-        Path("/home/zy/Downloads/data_process/cvat_data/task_2026-04-29-2").expanduser().resolve(),
-        Path("/home/zy/Downloads/data_process/cvat_data/task_2026-05-07").expanduser().resolve(),
-        Path("/home/zy/Downloads/data_process/cvat_data/task_2026-05-11").expanduser().resolve()
-    ]
+    input_dirs = [Path(p).expanduser().resolve() for p in args.inputs]
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 

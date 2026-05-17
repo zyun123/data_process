@@ -6,8 +6,9 @@ The script appends:
   - pos train_texts.jsonl -> cvat train_texts.jsonl
   - pos train_imgs.tsv    -> cvat train_imgs.tsv
 
-Positive-sample IDs are rewritten to continue after the max IDs in the CVAT train set,
-and valid_* files from the CVAT dataset are copied unchanged.
+Positive-sample text IDs are rewritten to continue after the max IDs in the CVAT
+train set. Image IDs are rewritten to continue after the max IDs in all CVAT
+image TSV files, and valid_* files from the CVAT dataset are copied unchanged.
 """
 
 import argparse
@@ -90,6 +91,13 @@ def max_image_id(rows: Iterable[Tuple[int, str]]) -> int:
     return max(ids, default=0)
 
 
+def max_dataset_image_id(dataset_dir: Path) -> int:
+    max_id = 0
+    for path in sorted(dataset_dir.glob("*_imgs.tsv")):
+        max_id = max(max_id, max_image_id(read_tsv(path)))
+    return max_id
+
+
 def build_image_id_map(pos_img_rows: List[Tuple[int, str]], start_id: int) -> Dict[int, int]:
     mapping = {}
     next_id = start_id
@@ -149,7 +157,7 @@ def main() -> None:
     pos_texts = read_jsonl(pos_texts_path)
     pos_imgs = read_tsv(pos_imgs_path)
 
-    image_id_map = build_image_id_map(pos_imgs, max_image_id(cvat_imgs) + 1)
+    image_id_map = build_image_id_map(pos_imgs, max_dataset_image_id(cvat_dir) + 1)
     remapped_pos_imgs = [(image_id_map[old_id], image_b64) for old_id, image_b64 in pos_imgs]
     remapped_pos_texts = remap_pos_texts(pos_texts, image_id_map, max_text_id(cvat_texts) + 1)
 

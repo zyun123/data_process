@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 from pathlib import Path
 from collections import Counter, defaultdict
 
@@ -286,16 +287,7 @@ def expand_one(text: str, max_new_per_item: int = 10) -> list[str]:
     return queries[:max_new_per_item]
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--input", type=Path, required=True)
-    ap.add_argument("--output", type=Path, required=True)
-    ap.add_argument("--max-new-per-item", type=int, default=8)
-    ap.add_argument("--keep-original", action="store_true", default=True)
-    ap.add_argument("--no-keep-original", dest="keep_original", action="store_false")
-    args = ap.parse_args()
-
-    rows = load_jsonl(args.input)
+def expand_rows(rows: list[dict], max_new_per_item: int, keep_original: bool) -> tuple[list[dict], list[int]]:
     out = []
     seen_pairs = set()
     next_id = 0
@@ -320,24 +312,74 @@ def main() -> None:
     for row in rows:
         text = row.get("text", "")
         image_ids = row.get("image_ids", [])
-        if args.keep_original:
+        if keep_original:
             add(text, image_ids, row.get("text_id"), expanded=False)
         before = len(out)
-        for q in expand_one(text, args.max_new_per_item):
+        for q in expand_one(text, max_new_per_item):
             add(q, image_ids, row.get("text_id"), expanded=True)
         added_counts.append(len(out) - before)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("w", encoding="utf-8") as f:
-        for item in out:
+    return out, added_counts
+
+
+def write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for item in rows:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
+
+def copy_dataset_files(src_dir: Path, out_dir: Path, skip_names: set[str]) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for src in sorted(src_dir.iterdir()):
+        if src.is_file() and src.name not in skip_names:
+            shutil.copy2(src, out_dir / src.name)
+
+
+def print_stats(input_rows: int, out: list[dict], added_counts: list[int]) -> None:
     c = Counter(added_counts)
-    print(f"input_rows={len(rows)}")
+    print(f"input_rows={input_rows}")
     print(f"output_rows={len(out)}")
     print(f"expanded_rows={sum(1 for x in out if 'source_text_id' in x)}")
     print(f"avg_new_per_input={sum(added_counts)/max(len(added_counts),1):.2f}")
     print(f"new_count_distribution={dict(sorted(c.items()))}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", type=Path, required=True, help="Input train_texts.jsonl or a MUGE dataset directory.")
+    ap.add_argument("--output", type=Path, required=True, help="Output JSONL path or dataset directory.")
+    ap.add_argument("--split", default="train", help="Split to expand when --input is a dataset directory. Default: train.")
+    ap.add_argument("--max-new-per-item", type=int, default=8)
+    ap.add_argument("--keep-original", action="store_true", default=True)
+    ap.add_argument("--no-keep-original", dest="keep_original", action="store_false")
+    ap.add_argument("--overwrite", action="store_true", help="Allow writing into an existing output path.")
+    args = ap.parse_args()
+
+    if args.input.is_dir():
+        input_texts = args.input / f"{args.split}_texts.jsonl"
+        if not input_texts.is_file():
+            raise FileNotFoundError(f"Missing text file: {input_texts}")
+        if args.output.exists() and not args.output.is_dir():
+            raise NotADirectoryError(f"Dataset output must be a directory: {args.output}")
+        if args.output.exists() and any(args.output.iterdir()) and not args.overwrite:
+            raise FileExistsError(f"Output directory is not empty: {args.output}. Use --overwrite to replace files.")
+
+        rows = load_jsonl(input_texts)
+        out, added_counts = expand_rows(rows, args.max_new_per_item, args.keep_original)
+        copy_dataset_files(args.input, args.output, skip_names={f"{args.split}_texts.jsonl"})
+        write_jsonl(args.output / f"{args.split}_texts.jsonl", out)
+        print(f"output_dataset={args.output.resolve()}")
+        print_stats(len(rows), out, added_counts)
+        return
+
+    if args.output.exists() and not args.overwrite:
+        raise FileExistsError(f"Output file already exists: {args.output}. Use --overwrite to replace it.")
+    rows = load_jsonl(args.input)
+    out, added_counts = expand_rows(rows, args.max_new_per_item, args.keep_original)
+    write_jsonl(args.output, out)
+
+    print_stats(len(rows), out, added_counts)
 
 
 if __name__ == "__main__":
