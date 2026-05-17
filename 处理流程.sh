@@ -8,7 +8,7 @@ python filter_cvat_datasets.py --dataset-dir "cvat_datasets"  --out-dir "cvat_no
 
 
 #将搜集的pos neg 数据集里的pos数据集 生成train 的jsonl 和 tsv  text-start-id 和 image-start-id 需要根据cvat_no_long_datasets 里最后一个id 来设置，保证不重复
-python build_muge_all_pos.py --root "/home/zy/Download/pos_neg_datasets" \
+python build_muge_all_pos.py --root "/home/zy/Downloads/pos_neg_images" \
                             --out-dir "pos_datasets" \
                             --text-start-id xxxx \
                             --image-start-id xxxx \
@@ -24,4 +24,4 @@ python merge_pos_to_cavt.py --cvat-dir "cvat_no_long_datasets" \
 python expand_train_texts.py --input "cvat_merge_pos_datasets" \
                             --output "cvat_merge_pos_datasets_expanded" \
                             --max-new-per-item 4 \
-                            
+
