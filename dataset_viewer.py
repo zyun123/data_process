@@ -206,6 +206,7 @@ HTML = """<!doctype html>
       aspect-ratio: 1 / 1;
       object-fit: contain;
       background: #eef1f5;
+      cursor: zoom-in;
     }
     .image-meta {
       padding: 10px;
@@ -222,6 +223,46 @@ HTML = """<!doctype html>
       height: 28px;
       padding: 0 9px;
       font-size: 12px;
+    }
+    .nav-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .nav-buttons button {
+      margin: 0;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      background: rgba(12, 18, 28, 0.78);
+    }
+    .modal.open {
+      display: flex;
+    }
+    .modal img {
+      max-width: min(96vw, 1400px);
+      max-height: 90vh;
+      object-fit: contain;
+      background: #111827;
+      border-radius: 8px;
+    }
+    .modal button {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      width: auto;
+      margin: 0;
+      padding: 0 14px;
+      background: #fff;
+      color: var(--text);
+      border-color: #fff;
     }
     @media (max-width: 820px) {
       main { grid-template-columns: 1fr; }
@@ -253,6 +294,12 @@ HTML = """<!doctype html>
 
       <button id="randomText" class="secondary">随机 text</button>
       <button id="randomImage" class="secondary">随机 image</button>
+      <div class="nav-buttons">
+        <button id="prevText" class="secondary">上一条 text</button>
+        <button id="nextText" class="secondary">下一条 text</button>
+        <button id="prevImage" class="secondary">上一张 image</button>
+        <button id="nextImage" class="secondary">下一张 image</button>
+      </div>
       <div id="status" class="status"></div>
     </aside>
     <section class="content">
@@ -261,8 +308,12 @@ HTML = """<!doctype html>
       <div id="images" class="grid"></div>
     </section>
   </main>
+  <div id="imageModal" class="modal">
+    <button id="closeModal">关闭</button>
+    <img id="modalImage" alt="放大图片">
+  </div>
   <script>
-    const state = { summary: null };
+    const state = { summary: null, currentTextId: null, currentImageId: null };
     const el = (id) => document.getElementById(id);
 
     function setStatus(text, error=false) {
@@ -292,6 +343,35 @@ HTML = """<!doctype html>
     }
 
     function split() { return el('split').value; }
+
+    function currentIds(kind) {
+      return state.summary?.splits?.[split()]?.[kind === 'text' ? 'text_ids' : 'image_ids'] || [];
+    }
+
+    function neighborId(kind, current, step) {
+      const ids = currentIds(kind);
+      if (!ids.length) return null;
+      const numeric = Number(current);
+      let idx = ids.indexOf(numeric);
+      if (idx < 0) {
+        idx = step > 0 ? ids.findIndex((id) => id > numeric) - 1 : ids.findIndex((id) => id >= numeric);
+        if (idx < 0) idx = step > 0 ? -1 : ids.length;
+      }
+      const nextIdx = Math.max(0, Math.min(ids.length - 1, idx + step));
+      return ids[nextIdx];
+    }
+
+    function goText(step) {
+      const base = state.currentTextId ?? el('textId').value.trim();
+      const id = neighborId('text', base, step);
+      if (id !== null) lookupText(id);
+    }
+
+    function goImage(step) {
+      const base = state.currentImageId ?? el('imageId').value.trim();
+      const id = neighborId('image', base, step);
+      if (id !== null) lookupImage(id);
+    }
 
     function renderSummary(data) {
       state.summary = data;
@@ -334,7 +414,7 @@ HTML = """<!doctype html>
     function renderImages(images, refs=[]) {
       el('images').innerHTML = images.map((img) => `
         <div class="image-card">
-          <img alt="image_id ${img.image_id}" src="${img.src}">
+          <img alt="image_id ${img.image_id}" src="${img.src}" data-zoom-src="${img.src}">
           <div class="image-meta">
             <span>image_id ${img.image_id}</span>
             <button data-jump-image="${img.image_id}" class="secondary">查看</button>
@@ -343,6 +423,9 @@ HTML = """<!doctype html>
       `).join('');
       document.querySelectorAll('[data-jump-image]').forEach((btn) => {
         btn.addEventListener('click', () => lookupImage(btn.dataset.jumpImage));
+      });
+      document.querySelectorAll('[data-zoom-src]').forEach((img) => {
+        img.addEventListener('dblclick', () => openModal(img.dataset.zoomSrc));
       });
       if (refs.length) {
         const refHtml = refs.map((r) => `
@@ -364,6 +447,16 @@ HTML = """<!doctype html>
           btn.addEventListener('click', () => lookupText(btn.dataset.textId));
         });
       }
+    }
+
+    function openModal(src) {
+      el('modalImage').src = src;
+      el('imageModal').classList.add('open');
+    }
+
+    function closeModal() {
+      el('imageModal').classList.remove('open');
+      el('modalImage').src = '';
     }
 
     function editableTextHtml(item) {
@@ -412,6 +505,7 @@ HTML = """<!doctype html>
         setStatus('加载中...');
         const data = await api('/api/text', { split: split(), text_id: id });
         el('textId').value = id;
+        state.currentTextId = Number(id);
         renderRecord(data.text, `text_id ${data.text.text_id}`);
         renderImages(data.images);
         setStatus(`找到 ${data.images.length} 张图片`);
@@ -425,6 +519,7 @@ HTML = """<!doctype html>
         setStatus('加载中...');
         const data = await api('/api/image', { split: split(), image_id: id });
         el('imageId').value = id;
+        state.currentImageId = Number(id);
         renderRecord(null);
         renderImages([data.image], data.texts);
         setStatus(`找到 image_id ${id}，引用文本 ${data.texts.length} 条`);
@@ -457,7 +552,16 @@ HTML = """<!doctype html>
       const s = state.summary?.splits?.[split()];
       if (s?.image_ids?.length) lookupImage(s.image_ids[randomFrom(0, s.image_ids.length - 1)]);
     });
+    el('prevText').addEventListener('click', () => goText(-1));
+    el('nextText').addEventListener('click', () => goText(1));
+    el('prevImage').addEventListener('click', () => goImage(-1));
+    el('nextImage').addEventListener('click', () => goImage(1));
+    el('closeModal').addEventListener('click', closeModal);
+    el('imageModal').addEventListener('click', (e) => { if (e.target === el('imageModal')) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
     el('split').addEventListener('change', () => {
+      state.currentTextId = null;
+      state.currentImageId = null;
       el('record').innerHTML = '';
       el('images').innerHTML = '';
       setStatus('');
