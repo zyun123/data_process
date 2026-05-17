@@ -11,6 +11,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
 HTML = """<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -114,6 +117,15 @@ HTML = """<!doctype html>
       line-height: 1.4;
     }
     .status.error { color: var(--danger); }
+    .side-section {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .side-section h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
     .summary {
       display: grid;
       grid-template-columns: repeat(4, minmax(120px, 1fr));
@@ -300,6 +312,18 @@ HTML = """<!doctype html>
         <button id="prevImage" class="secondary">上一张 image</button>
         <button id="nextImage" class="secondary">下一张 image</button>
       </div>
+
+      <div class="side-section">
+        <h2>补充标注到 train</h2>
+        <label for="annotationPath">图片文件或目录路径</label>
+        <input id="annotationPath" placeholder="/home/zy/Downloads/wrong_top100">
+        <button id="loadAnnotationImages" class="secondary">加载待标注图片</button>
+
+        <label for="annotationText">标注文本</label>
+        <textarea id="annotationText" class="editor" placeholder="输入这批图片对应的文本"></textarea>
+        <button id="saveCurrentAnnotation">保存当前图片到 train</button>
+        <button id="saveBatchAnnotation" class="secondary">批量加入 train</button>
+      </div>
       <div id="status" class="status"></div>
     </aside>
     <section class="content">
@@ -313,7 +337,14 @@ HTML = """<!doctype html>
     <img id="modalImage" alt="放大图片">
   </div>
   <script>
-    const state = { summary: null, currentTextId: null, currentImageId: null };
+    const state = {
+      summary: null,
+      currentTextId: null,
+      currentImageId: null,
+      annotationImages: [],
+      annotationIndex: 0,
+      savingAnnotation: false,
+    };
     const el = (id) => document.getElementById(id);
 
     function setStatus(text, error=false) {
@@ -449,6 +480,17 @@ HTML = """<!doctype html>
       }
     }
 
+    function renderAnnotationImage() {
+      if (!state.annotationImages.length) {
+        setStatus('没有待标注图片');
+        return;
+      }
+      const img = state.annotationImages[state.annotationIndex];
+      renderRecord(null);
+      renderImages([{ image_id: `待标注 ${state.annotationIndex + 1}/${state.annotationImages.length}`, src: img.src }]);
+      setStatus(`待标注：${img.path}`);
+    }
+
     function openModal(src) {
       el('modalImage').src = src;
       el('imageModal').classList.add('open');
@@ -492,6 +534,73 @@ HTML = """<!doctype html>
       } catch (err) {
         setStatus(err.message, true);
       }
+    }
+
+    async function loadAnnotationImages() {
+      try {
+        setStatus('加载待标注图片...');
+        const data = await api('/api/load-images', { path: el('annotationPath').value.trim() });
+        state.annotationImages = data.images;
+        state.annotationIndex = 0;
+        renderAnnotationImage();
+        setStatus(`已加载 ${data.images.length} 张图片`);
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    }
+
+    async function saveAnnotation(paths) {
+      if (state.savingAnnotation) {
+        setStatus('正在保存，请稍等');
+        return false;
+      }
+      const text = el('annotationText').value.trim();
+      if (!text) {
+        setStatus('标注文本不能为空', true);
+        return;
+      }
+      if (!paths.length) {
+        setStatus('没有待保存图片', true);
+        return;
+      }
+      try {
+        state.savingAnnotation = true;
+        el('saveCurrentAnnotation').disabled = true;
+        el('saveBatchAnnotation').disabled = true;
+        setStatus('写入 train...');
+        const data = await apiPost('/api/annotation', { text, image_paths: paths });
+        await loadSummary();
+        if (data.existing) {
+          setStatus(`已存在相同图片和文本：text_id ${data.text_id}`);
+        } else {
+          setStatus(`已加入 train：text_id ${data.text_id}，image_ids ${data.image_ids[0]}..${data.image_ids[data.image_ids.length - 1]}`);
+        }
+        lookupText(data.text_id);
+        return true;
+      } catch (err) {
+        setStatus(err.message, true);
+        return false;
+      } finally {
+        state.savingAnnotation = false;
+        el('saveCurrentAnnotation').disabled = false;
+        el('saveBatchAnnotation').disabled = false;
+      }
+    }
+
+    async function saveCurrentAnnotation() {
+      const img = state.annotationImages[state.annotationIndex];
+      if (!img) {
+        setStatus('没有当前待标注图片', true);
+        return;
+      }
+      const saved = await saveAnnotation([img.path]);
+      if (saved && state.annotationIndex < state.annotationImages.length - 1) {
+        state.annotationIndex += 1;
+      }
+    }
+
+    function saveBatchAnnotation() {
+      saveAnnotation(state.annotationImages.map((img) => img.path));
     }
 
     function escapeHtml(value) {
@@ -556,6 +665,9 @@ HTML = """<!doctype html>
     el('nextText').addEventListener('click', () => goText(1));
     el('prevImage').addEventListener('click', () => goImage(-1));
     el('nextImage').addEventListener('click', () => goImage(1));
+    el('loadAnnotationImages').addEventListener('click', loadAnnotationImages);
+    el('saveCurrentAnnotation').addEventListener('click', saveCurrentAnnotation);
+    el('saveBatchAnnotation').addEventListener('click', saveBatchAnnotation);
     el('closeModal').addEventListener('click', closeModal);
     el('imageModal').addEventListener('click', (e) => { if (e.target === el('imageModal')) closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
@@ -578,13 +690,18 @@ class DatasetIndex:
         self.dataset_dir = dataset_dir
         self.lock = threading.Lock()
         self.splits = {}
+        self.reload()
+
+    def reload(self) -> None:
+        splits = {}
         for split in ("train", "valid"):
-            texts_path = dataset_dir / f"{split}_texts.jsonl"
-            imgs_path = dataset_dir / f"{split}_imgs.tsv"
+            texts_path = self.dataset_dir / f"{split}_texts.jsonl"
+            imgs_path = self.dataset_dir / f"{split}_imgs.tsv"
             if texts_path.is_file() and imgs_path.is_file():
-                self.splits[split] = self._load_split(texts_path, imgs_path)
-        if not self.splits:
+                splits[split] = self._load_split(texts_path, imgs_path)
+        if not splits:
             raise FileNotFoundError(f"No train/valid MUGE files found in {dataset_dir}")
+        self.splits = splits
 
     def _load_split(self, texts_path: Path, imgs_path: Path) -> dict:
         images = {}
@@ -617,6 +734,7 @@ class DatasetIndex:
 
         return {
             "texts_path": texts_path,
+            "imgs_path": imgs_path,
             "texts": texts,
             "text_rows": rows,
             "images": images,
@@ -658,6 +776,96 @@ class DatasetIndex:
             "image": {"image_id": image_id, "src": src},
             "texts": [{"text_id": item["text_id"], "text": item.get("text", "")} for item in refs],
         }
+
+    def load_images_from_path(self, value: str) -> dict:
+        path = Path(value).expanduser().resolve()
+        if path.is_file():
+            image_paths = [path] if path.suffix.lower() in IMG_EXTS else []
+        elif path.is_dir():
+            image_paths = sorted(
+                [p for p in path.iterdir() if p.is_file() and p.suffix.lower() in IMG_EXTS],
+                key=lambda p: p.name,
+            )
+        else:
+            raise FileNotFoundError(f"Path not found: {path}")
+        if not image_paths:
+            raise FileNotFoundError(f"No supported images found: {path}")
+
+        images = []
+        for image_path in image_paths:
+            b64 = encode_image_file(image_path)
+            images.append(
+                {
+                    "path": str(image_path),
+                    "name": image_path.name,
+                    "src": f"data:{guess_image_mime(b64)};base64,{b64}",
+                }
+            )
+        return {"images": images}
+
+    def add_train_annotation(self, image_paths: list[str], text: str) -> dict:
+        text = str(text).strip()
+        if not text:
+            raise ValueError("text cannot be empty")
+        if not image_paths:
+            raise ValueError("image_paths cannot be empty")
+
+        paths = [Path(p).expanduser().resolve() for p in image_paths]
+        for path in paths:
+            if not path.is_file() or path.suffix.lower() not in IMG_EXTS:
+                raise FileNotFoundError(f"Unsupported or missing image file: {path}")
+
+        with self.lock:
+            self.reload()
+            train = self._split("train")
+            image_b64s = [encode_image_file(path) for path in paths]
+            duplicate = self._find_duplicate_annotation(train, text, image_b64s)
+            if duplicate is not None:
+                return {"text_id": duplicate["text_id"], "image_ids": duplicate["image_ids"], "existing": True}
+
+            next_text_id = max(train["texts"].keys(), default=-1) + 1
+            max_image_id = max(
+                (image_id for data in self.splits.values() for image_id in data["images"].keys()),
+                default=0,
+            )
+            next_image_id = max_image_id + 1
+            image_ids = list(range(next_image_id, next_image_id + len(paths)))
+
+            texts_path = train["texts_path"]
+            imgs_path = train["imgs_path"]
+            for path in (texts_path, imgs_path):
+                backup_path = path.with_name(path.name + ".bak")
+                if not backup_path.exists():
+                    shutil.copy2(path, backup_path)
+
+            image_rows = []
+            for image_id, image_b64 in zip(image_ids, image_b64s):
+                image_rows.append((image_id, image_b64))
+
+            record = {"text_id": next_text_id, "text": text, "image_ids": image_ids}
+            with imgs_path.open("a", encoding="utf-8") as f:
+                for image_id, image_b64 in image_rows:
+                    f.write(f"{image_id}\t{image_b64}\n")
+            with texts_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            train["text_rows"].append(record)
+            train["texts"][next_text_id] = record
+            for image_id, image_b64 in image_rows:
+                train["images"][image_id] = image_b64
+                train["image_to_texts"].setdefault(image_id, []).append(record)
+
+        return {"text_id": next_text_id, "image_ids": image_ids, "existing": False}
+
+    def _find_duplicate_annotation(self, train: dict, text: str, image_b64s: list[str]) -> dict | None:
+        wanted = set(image_b64s)
+        for record in train["text_rows"]:
+            if str(record.get("text", "")).strip() != text:
+                continue
+            existing = [train["images"].get(image_id) for image_id in record.get("image_ids", [])]
+            if set(existing) == wanted and len(existing) == len(image_b64s):
+                return record
+        return None
 
     def update_text(self, split: str, text_id: int, text: str) -> dict:
         text = str(text).strip()
@@ -706,6 +914,10 @@ def guess_image_mime(b64: str) -> str:
     return mimetypes.types_map.get(".jpg", "image/jpeg")
 
 
+def encode_image_file(path: Path) -> str:
+    return base64.b64encode(path.read_bytes()).decode("utf-8")
+
+
 def parse_int(params: dict, key: str) -> int:
     values = params.get(key)
     if not values or values[0] == "":
@@ -731,6 +943,12 @@ class Handler(BaseHTTPRequestHandler):
                 params = parse_qs(parsed.query)
                 split = params.get("split", ["train"])[0]
                 self._send_json(self.index.get_image(split, parse_int(params, "image_id")))
+            elif parsed.path == "/api/load-images":
+                params = parse_qs(parsed.query)
+                values = params.get("path")
+                if not values or not values[0]:
+                    raise ValueError("Missing path")
+                self._send_json(self.index.load_images_from_path(values[0]))
             else:
                 self._send_json({"error": "not found"}, status=404)
         except Exception as exc:
@@ -739,15 +957,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         try:
-            if parsed.path != "/api/text":
+            if parsed.path == "/api/text":
+                content_length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                split = payload.get("split", "train")
+                text_id = int(payload["text_id"])
+                text = payload.get("text", "")
+                self._send_json(self.index.update_text(split, text_id, text))
+                return
+            if parsed.path == "/api/annotation":
+                content_length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                self._send_json(
+                    self.index.add_train_annotation(
+                        image_paths=payload.get("image_paths", []),
+                        text=payload.get("text", ""),
+                    )
+                )
+                return
+            else:
                 self._send_json({"error": "not found"}, status=404)
                 return
-            content_length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
-            split = payload.get("split", "train")
-            text_id = int(payload["text_id"])
-            text = payload.get("text", "")
-            self._send_json(self.index.update_text(split, text_id, text))
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=400)
 
