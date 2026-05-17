@@ -32,13 +32,15 @@ python3 filter_long_texts.py \
   --out-dir "${CVAT_NO_LONG_DATASET}" \
   --max-len 55
 
-# 3. 从 pos/neg 采集数据中抽取所有 pos_images，生成 train_texts.jsonl 和 train_imgs.tsv。
+# 3. 从 pos/neg 采集数据中抽取所有 pos_images，并按 query 目录切分 train/valid。
 # 后续 merge_pos_to_cvat.py 会重新映射 ID，所以这里从 0 开始即可。
 python3 build_muge_all_pos.py \
   --root /home/zy/Downloads/pos_neg_images \
   --out-dir "${POS_DATASET}" \
   --text-start-id 0 \
-  --image-start-id 0
+  --image-start-id 0 \
+  --valid-ratio 0.1 \
+  --seed 42
 
 # 4. 将 pos 数据集合并到过滤后的 CVAT 数据集。
 python3 merge_pos_to_cvat.py \
@@ -51,6 +53,9 @@ python3 expand_train_texts.py \
   --input "${MERGED_DATASET}" \
   --output "${EXPANDED_DATASET}" \
   --max-new-per-item 4
+
+python3 validate_muge_dataset.py \
+  --dataset-dir "${EXPANDED_DATASET}"
 
 echo "Done."
 echo "Final dataset: ${EXPANDED_DATASET}"
