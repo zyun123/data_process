@@ -63,7 +63,7 @@ HTML = """<!doctype html>
     }
     main {
       display: grid;
-      grid-template-columns: 320px 1fr;
+      grid-template-columns: 320px minmax(0, 1fr) 180px;
       min-height: calc(100vh - 56px);
     }
     aside {
@@ -74,6 +74,42 @@ HTML = """<!doctype html>
     .content {
       padding: 20px;
       min-width: 0;
+    }
+    .id-panel {
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      padding: 14px 10px;
+      min-width: 0;
+    }
+    .id-panel h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+    }
+    .id-list {
+      height: calc(100vh - 96px);
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+    }
+    .id-item {
+      display: block;
+      width: 100%;
+      height: 30px;
+      margin: 0;
+      padding: 0 8px;
+      border: 0;
+      border-bottom: 1px solid #eef1f5;
+      border-radius: 0;
+      background: #fff;
+      color: var(--text);
+      text-align: left;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .id-item:hover, .id-item.active {
+      background: var(--accent-soft);
+      color: #164b76;
     }
     label {
       display: block;
@@ -279,6 +315,8 @@ HTML = """<!doctype html>
     @media (max-width: 820px) {
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      .id-panel { border-left: 0; border-top: 1px solid var(--line); }
+      .id-list { height: 220px; }
       .summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
     }
   </style>
@@ -315,14 +353,16 @@ HTML = """<!doctype html>
 
       <div class="side-section">
         <h2>补充标注到 train</h2>
-        <label for="annotationPath">图片文件或目录路径</label>
-        <input id="annotationPath" placeholder="/home/zy/Downloads/wrong_top100">
-        <button id="loadAnnotationImages" class="secondary">加载待标注图片</button>
+        <label for="annotationFiles">导入图片</label>
+        <input id="annotationFiles" type="file" accept="image/*" multiple>
 
         <label for="annotationText">标注文本</label>
-        <textarea id="annotationText" class="editor" placeholder="输入这批图片对应的文本"></textarea>
+        <textarea id="annotationText" class="editor" placeholder="输入当前图片对应的文本"></textarea>
         <button id="saveCurrentAnnotation">保存当前图片到 train</button>
-        <button id="saveBatchAnnotation" class="secondary">批量加入 train</button>
+        <div class="nav-buttons">
+          <button id="prevAnnotationImage" class="secondary">上一张待标注</button>
+          <button id="nextAnnotationImage" class="secondary">下一张待标注</button>
+        </div>
       </div>
       <div id="status" class="status"></div>
     </aside>
@@ -331,6 +371,10 @@ HTML = """<!doctype html>
       <div id="record"></div>
       <div id="images" class="grid"></div>
     </section>
+    <aside class="id-panel">
+      <h2 id="imageIdListTitle">image_id</h2>
+      <div id="imageIdList" class="id-list"></div>
+    </aside>
   </main>
   <div id="imageModal" class="modal">
     <button id="closeModal">关闭</button>
@@ -420,6 +464,18 @@ HTML = """<!doctype html>
           </div>`;
       }).join('');
       el('summary').innerHTML = parts;
+      renderImageIdList();
+    }
+
+    function renderImageIdList() {
+      const ids = currentIds('image');
+      el('imageIdListTitle').textContent = `${split()} image_id (${ids.length})`;
+      el('imageIdList').innerHTML = ids.map((id) => `
+        <button class="id-item ${Number(id) === state.currentImageId ? 'active' : ''}" data-list-image-id="${id}">${id}</button>
+      `).join('');
+      document.querySelectorAll('[data-list-image-id]').forEach((btn) => {
+        btn.addEventListener('click', () => lookupImage(btn.dataset.listImageId));
+      });
     }
 
     function renderRecord(item, title) {
@@ -488,7 +544,7 @@ HTML = """<!doctype html>
       const img = state.annotationImages[state.annotationIndex];
       renderRecord(null);
       renderImages([{ image_id: `待标注 ${state.annotationIndex + 1}/${state.annotationImages.length}`, src: img.src }]);
-      setStatus(`待标注：${img.path}`);
+      setStatus(`待标注：${img.name}`);
     }
 
     function openModal(src) {
@@ -536,20 +592,43 @@ HTML = """<!doctype html>
       }
     }
 
-    async function loadAnnotationImages() {
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function importAnnotationFiles(files) {
       try {
-        setStatus('加载待标注图片...');
-        const data = await api('/api/load-images', { path: el('annotationPath').value.trim() });
-        state.annotationImages = data.images;
+        const selected = Array.from(files || []);
+        if (!selected.length) {
+          setStatus('请选择图片文件', true);
+          return;
+        }
+        setStatus('导入图片...');
+        state.annotationImages = [];
+        for (const file of selected) {
+          if (!file.type.startsWith('image/')) continue;
+          const src = await readFileAsDataUrl(file);
+          state.annotationImages.push({ name: file.name, src });
+        }
+        if (!state.annotationImages.length) {
+          setStatus('没有可导入的图片', true);
+          return;
+        }
         state.annotationIndex = 0;
+        el('annotationText').value = '';
         renderAnnotationImage();
-        setStatus(`已加载 ${data.images.length} 张图片`);
+        setStatus(`已导入 ${state.annotationImages.length} 张图片`);
       } catch (err) {
         setStatus(err.message, true);
       }
     }
 
-    async function saveAnnotation(paths) {
+    async function saveAnnotation(images) {
       if (state.savingAnnotation) {
         setStatus('正在保存，请稍等');
         return false;
@@ -559,16 +638,15 @@ HTML = """<!doctype html>
         setStatus('标注文本不能为空', true);
         return;
       }
-      if (!paths.length) {
+      if (!images.length) {
         setStatus('没有待保存图片', true);
         return;
       }
       try {
         state.savingAnnotation = true;
         el('saveCurrentAnnotation').disabled = true;
-        el('saveBatchAnnotation').disabled = true;
         setStatus('写入 train...');
-        const data = await apiPost('/api/annotation', { text, image_paths: paths });
+        const data = await apiPost('/api/annotation', { text, images });
         await loadSummary();
         if (data.existing) {
           setStatus(`已存在相同图片和文本：text_id ${data.text_id}`);
@@ -583,7 +661,6 @@ HTML = """<!doctype html>
       } finally {
         state.savingAnnotation = false;
         el('saveCurrentAnnotation').disabled = false;
-        el('saveBatchAnnotation').disabled = false;
       }
     }
 
@@ -593,14 +670,21 @@ HTML = """<!doctype html>
         setStatus('没有当前待标注图片', true);
         return;
       }
-      const saved = await saveAnnotation([img.path]);
+      const saved = await saveAnnotation([{ name: img.name, src: img.src }]);
       if (saved && state.annotationIndex < state.annotationImages.length - 1) {
         state.annotationIndex += 1;
+        el('annotationText').value = '';
+        renderAnnotationImage();
       }
     }
 
-    function saveBatchAnnotation() {
-      saveAnnotation(state.annotationImages.map((img) => img.path));
+    function goAnnotationImage(step) {
+      if (!state.annotationImages.length) {
+        setStatus('没有待标注图片', true);
+        return;
+      }
+      state.annotationIndex = Math.max(0, Math.min(state.annotationImages.length - 1, state.annotationIndex + step));
+      renderAnnotationImage();
     }
 
     function escapeHtml(value) {
@@ -631,6 +715,7 @@ HTML = """<!doctype html>
         state.currentImageId = Number(id);
         renderRecord(null);
         renderImages([data.image], data.texts);
+        renderImageIdList();
         setStatus(`找到 image_id ${id}，引用文本 ${data.texts.length} 条`);
       } catch (err) {
         setStatus(err.message, true);
@@ -665,9 +750,10 @@ HTML = """<!doctype html>
     el('nextText').addEventListener('click', () => goText(1));
     el('prevImage').addEventListener('click', () => goImage(-1));
     el('nextImage').addEventListener('click', () => goImage(1));
-    el('loadAnnotationImages').addEventListener('click', loadAnnotationImages);
+    el('annotationFiles').addEventListener('change', (e) => importAnnotationFiles(e.target.files));
     el('saveCurrentAnnotation').addEventListener('click', saveCurrentAnnotation);
-    el('saveBatchAnnotation').addEventListener('click', saveBatchAnnotation);
+    el('prevAnnotationImage').addEventListener('click', () => goAnnotationImage(-1));
+    el('nextAnnotationImage').addEventListener('click', () => goAnnotationImage(1));
     el('closeModal').addEventListener('click', closeModal);
     el('imageModal').addEventListener('click', (e) => { if (e.target === el('imageModal')) closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
@@ -676,6 +762,7 @@ HTML = """<!doctype html>
       state.currentImageId = null;
       el('record').innerHTML = '';
       el('images').innerHTML = '';
+      renderImageIdList();
       setStatus('');
     });
     loadSummary();
@@ -803,22 +890,29 @@ class DatasetIndex:
             )
         return {"images": images}
 
-    def add_train_annotation(self, image_paths: list[str], text: str) -> dict:
+    def add_train_annotation(self, image_paths: list[str] | None = None, text: str = "", images: list[dict] | None = None) -> dict:
         text = str(text).strip()
         if not text:
             raise ValueError("text cannot be empty")
-        if not image_paths:
-            raise ValueError("image_paths cannot be empty")
-
-        paths = [Path(p).expanduser().resolve() for p in image_paths]
-        for path in paths:
-            if not path.is_file() or path.suffix.lower() not in IMG_EXTS:
-                raise FileNotFoundError(f"Unsupported or missing image file: {path}")
+        image_b64s = []
+        if images:
+            for image in images:
+                src = image.get("src", "")
+                image_b64s.append(data_url_to_b64(src))
+        elif image_paths:
+            paths = [Path(p).expanduser().resolve() for p in image_paths]
+            for path in paths:
+                if not path.is_file() or path.suffix.lower() not in IMG_EXTS:
+                    raise FileNotFoundError(f"Unsupported or missing image file: {path}")
+                image_b64s.append(encode_image_file(path))
+        else:
+            raise ValueError("images cannot be empty")
+        if not image_b64s:
+            raise ValueError("images cannot be empty")
 
         with self.lock:
             self.reload()
             train = self._split("train")
-            image_b64s = [encode_image_file(path) for path in paths]
             duplicate = self._find_duplicate_annotation(train, text, image_b64s)
             if duplicate is not None:
                 return {"text_id": duplicate["text_id"], "image_ids": duplicate["image_ids"], "existing": True}
@@ -829,7 +923,7 @@ class DatasetIndex:
                 default=0,
             )
             next_image_id = max_image_id + 1
-            image_ids = list(range(next_image_id, next_image_id + len(paths)))
+            image_ids = list(range(next_image_id, next_image_id + len(image_b64s)))
 
             texts_path = train["texts_path"]
             imgs_path = train["imgs_path"]
@@ -918,6 +1012,17 @@ def encode_image_file(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("utf-8")
 
 
+def data_url_to_b64(value: str) -> str:
+    if not value.startswith("data:image/"):
+        raise ValueError("Invalid uploaded image data")
+    try:
+        _, b64 = value.split(",", 1)
+    except ValueError as exc:
+        raise ValueError("Invalid uploaded image data") from exc
+    base64.b64decode(b64[:128], validate=False)
+    return b64
+
+
 def parse_int(params: dict, key: str) -> int:
     values = params.get(key)
     if not values or values[0] == "":
@@ -972,6 +1077,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.index.add_train_annotation(
                         image_paths=payload.get("image_paths", []),
                         text=payload.get("text", ""),
+                        images=payload.get("images", []),
                     )
                 )
                 return
