@@ -14,6 +14,7 @@ the max IDs in all CVAT image TSV files.
 """
 
 import argparse
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -83,6 +84,53 @@ def write_tsv(path: Path, rows: Iterable[Tuple[int, str]]) -> None:
             f.write(f"{image_id}\t{image_b64}\n")
 
 
+def image_hash(image_b64: str) -> str:
+    return hashlib.sha1(image_b64.encode("utf-8")).hexdigest()
+
+
+def drop_valid_images_duplicated_in_train(
+    train_imgs: List[Tuple[int, str]],
+    valid_texts: List[dict],
+    valid_imgs: List[Tuple[int, str]],
+    valid_hard_negatives: List[dict],
+) -> Tuple[List[dict], List[Tuple[int, str]], List[dict], int, int]:
+    train_hashes = {image_hash(image_b64) for _, image_b64 in train_imgs}
+    duplicate_valid_ids = {
+        image_id for image_id, image_b64 in valid_imgs if image_hash(image_b64) in train_hashes
+    }
+    if not duplicate_valid_ids:
+        return valid_texts, valid_imgs, valid_hard_negatives, 0, 0
+
+    filtered_imgs = [(image_id, image_b64) for image_id, image_b64 in valid_imgs if image_id not in duplicate_valid_ids]
+    filtered_texts = []
+    removed_texts = 0
+    for record in valid_texts:
+        new_record = dict(record)
+        new_record["image_ids"] = [
+            image_id for image_id in record.get("image_ids", []) if image_id not in duplicate_valid_ids
+        ]
+        if not new_record["image_ids"]:
+            removed_texts += 1
+            continue
+        filtered_texts.append(new_record)
+
+    remaining_text_ids = {int(record["text_id"]) for record in filtered_texts}
+    filtered_hard_negatives = []
+    for record in valid_hard_negatives:
+        text_id = int(record["text_id"])
+        if text_id not in remaining_text_ids:
+            continue
+        new_record = dict(record)
+        new_record["positive_image_ids"] = [
+            image_id for image_id in record.get("positive_image_ids", []) if image_id not in duplicate_valid_ids
+        ]
+        if not new_record["positive_image_ids"]:
+            continue
+        filtered_hard_negatives.append(new_record)
+
+    return filtered_texts, filtered_imgs, filtered_hard_negatives, len(duplicate_valid_ids), removed_texts
+
+
 def max_text_id(records: Iterable[dict]) -> int:
     ids = [int(record["text_id"]) for record in records]
     return max(ids, default=-1)
@@ -111,6 +159,16 @@ def build_image_id_map(pos_img_rows: List[Tuple[int, str]], start_id: int) -> Di
     return mapping
 
 
+def build_text_id_map(pos_texts: List[dict], text_start_id: int) -> Dict[int, int]:
+    mapping = {}
+    for offset, record in enumerate(pos_texts):
+        old_id = int(record["text_id"])
+        if old_id in mapping:
+            raise ValueError(f"Duplicate text_id in pos text files: {old_id}")
+        mapping[old_id] = text_start_id + offset
+    return mapping
+
+
 def remap_pos_texts(pos_texts: List[dict], image_id_map: Dict[int, int], text_start_id: int, split: str) -> List[dict]:
     remapped = []
     for offset, record in enumerate(pos_texts):
@@ -125,6 +183,37 @@ def remap_pos_texts(pos_texts: List[dict], image_id_map: Dict[int, int], text_st
         new_record["text_id"] = text_start_id + offset
         new_record["image_ids"] = [image_id_map[image_id] for image_id in old_image_ids]
         remapped.append(new_record)
+    return remapped
+
+
+def remap_hard_negatives(
+    hard_negatives: List[dict],
+    text_id_map: Dict[int, int],
+    positive_image_id_map: Dict[int, int],
+    negative_image_id_map: Dict[int, int],
+    split: str,
+) -> List[dict]:
+    remapped = []
+    for record in hard_negatives:
+        old_text_id = int(record["text_id"])
+        if old_text_id not in text_id_map:
+            raise ValueError(f"pos {split} hard negative references missing text_id: {old_text_id}")
+
+        missing_pos = [image_id for image_id in record.get("positive_image_ids", []) if image_id not in positive_image_id_map]
+        missing_neg = [image_id for image_id in record.get("negative_image_ids", []) if image_id not in negative_image_id_map]
+        if missing_pos:
+            raise ValueError(f"pos {split} hard negative text_id {old_text_id} has missing positive ids: {missing_pos[:10]}")
+        if missing_neg:
+            raise ValueError(f"pos {split} hard negative text_id {old_text_id} has missing negative ids: {missing_neg[:10]}")
+
+        remapped.append(
+            {
+                "text_id": text_id_map[old_text_id],
+                "text": record.get("text", ""),
+                "positive_image_ids": [positive_image_id_map[image_id] for image_id in record.get("positive_image_ids", [])],
+                "negative_image_ids": [negative_image_id_map[image_id] for image_id in record.get("negative_image_ids", [])],
+            }
+        )
     return remapped
 
 
@@ -164,6 +253,16 @@ def read_split(dataset_dir: Path, split: str, required: bool) -> Tuple[List[dict
     return read_jsonl(texts_path), read_tsv(imgs_path)
 
 
+def read_hard_negative_split(dataset_dir: Path, split: str) -> Tuple[List[dict], List[Tuple[int, str]]]:
+    texts_path = dataset_dir / f"{split}_hard_negatives.jsonl"
+    imgs_path = dataset_dir / f"{split}_hard_neg_imgs.tsv"
+    if not texts_path.is_file() and not imgs_path.is_file():
+        return [], []
+    require_file(texts_path)
+    require_file(imgs_path)
+    return read_jsonl(texts_path), read_tsv(imgs_path)
+
+
 def remap_split(
     pos_texts: List[dict],
     pos_imgs: List[Tuple[int, str]],
@@ -196,9 +295,16 @@ def main() -> None:
     cvat_valid_texts, cvat_valid_imgs = read_split(cvat_dir, "valid", required=True)
     pos_train_texts, pos_train_imgs = read_split(pos_dir, "train", required=True)
     pos_valid_texts, pos_valid_imgs = read_split(pos_dir, "valid", required=False)
+    pos_train_hard_negs, pos_train_hard_neg_imgs = read_hard_negative_split(pos_dir, "train")
+    pos_valid_hard_negs, pos_valid_hard_neg_imgs = read_hard_negative_split(pos_dir, "valid")
 
     all_pos_imgs = [*pos_train_imgs, *pos_valid_imgs]
     image_id_map = build_image_id_map(all_pos_imgs, max_dataset_image_id(cvat_dir) + 1)
+    all_hard_neg_imgs = [*pos_train_hard_neg_imgs, *pos_valid_hard_neg_imgs]
+    next_hard_neg_image_id = max(image_id_map.values(), default=max_dataset_image_id(cvat_dir)) + 1
+    hard_neg_image_id_map = build_image_id_map(all_hard_neg_imgs, next_hard_neg_image_id)
+    train_text_id_map = build_text_id_map(pos_train_texts, max_text_id(cvat_train_texts) + 1)
+    valid_text_id_map = build_text_id_map(pos_valid_texts, max_text_id(cvat_valid_texts) + 1)
     remapped_pos_train_texts, remapped_pos_train_imgs = remap_split(
         pos_train_texts,
         pos_train_imgs,
@@ -213,11 +319,44 @@ def main() -> None:
         max_text_id(cvat_valid_texts) + 1,
         "valid",
     )
+    remapped_train_hard_negs = remap_hard_negatives(
+        pos_train_hard_negs,
+        train_text_id_map,
+        image_id_map,
+        hard_neg_image_id_map,
+        "train",
+    )
+    remapped_valid_hard_negs = remap_hard_negatives(
+        pos_valid_hard_negs,
+        valid_text_id_map,
+        image_id_map,
+        hard_neg_image_id_map,
+        "valid",
+    )
+    remapped_train_hard_neg_imgs = [
+        (hard_neg_image_id_map[old_id], image_b64) for old_id, image_b64 in pos_train_hard_neg_imgs
+    ]
+    remapped_valid_hard_neg_imgs = [
+        (hard_neg_image_id_map[old_id], image_b64) for old_id, image_b64 in pos_valid_hard_neg_imgs
+    ]
 
     output_train_texts = [*cvat_train_texts, *remapped_pos_train_texts]
     output_train_imgs = [*cvat_train_imgs, *remapped_pos_train_imgs]
     output_valid_texts = [*cvat_valid_texts, *remapped_pos_valid_texts]
     output_valid_imgs = [*cvat_valid_imgs, *remapped_pos_valid_imgs]
+
+    (
+        output_valid_texts,
+        output_valid_imgs,
+        remapped_valid_hard_negs,
+        duplicate_valid_images_removed,
+        duplicate_valid_texts_removed,
+    ) = drop_valid_images_duplicated_in_train(
+        output_train_imgs,
+        output_valid_texts,
+        output_valid_imgs,
+        remapped_valid_hard_negs,
+    )
 
     validate_split(output_train_texts, output_train_imgs, "train")
     validate_split(output_valid_texts, output_valid_imgs, "valid")
@@ -227,6 +366,10 @@ def main() -> None:
     write_tsv(out_dir / "train_imgs.tsv", output_train_imgs)
     write_jsonl(out_dir / "valid_texts.jsonl", output_valid_texts)
     write_tsv(out_dir / "valid_imgs.tsv", output_valid_imgs)
+    write_jsonl(out_dir / "train_hard_negatives.jsonl", remapped_train_hard_negs)
+    write_tsv(out_dir / "train_hard_neg_imgs.tsv", remapped_train_hard_neg_imgs)
+    write_jsonl(out_dir / "valid_hard_negatives.jsonl", remapped_valid_hard_negs)
+    write_tsv(out_dir / "valid_hard_neg_imgs.tsv", remapped_valid_hard_neg_imgs)
 
     print(f"wrote output dir: {out_dir}")
     print(
@@ -237,6 +380,15 @@ def main() -> None:
         f"valid texts: {len(cvat_valid_texts)} + {len(remapped_pos_valid_texts)} = {len(output_valid_texts)}"
     )
     print(f"valid images: {len(cvat_valid_imgs)} + {len(remapped_pos_valid_imgs)} = {len(output_valid_imgs)}")
+    print(
+        f"hard negatives: train {len(remapped_train_hard_negs)} texts/{len(remapped_train_hard_neg_imgs)} images, "
+        f"valid {len(remapped_valid_hard_negs)} texts/{len(remapped_valid_hard_neg_imgs)} images"
+    )
+    if duplicate_valid_images_removed:
+        print(
+            f"removed valid duplicate images already present in train: "
+            f"{duplicate_valid_images_removed} images, {duplicate_valid_texts_removed} texts"
+        )
     if remapped_pos_train_texts:
         print(f"added train text_id range: {remapped_pos_train_texts[0]['text_id']}..{remapped_pos_train_texts[-1]['text_id']}")
     if remapped_pos_valid_texts:

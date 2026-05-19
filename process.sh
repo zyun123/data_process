@@ -12,7 +12,7 @@ EXPANDED_DATASET="${OUT_ROOT}/cvat_merge_pos_datasets_expand"
 
 if [[ -e "${OUT_ROOT}" ]]; then
   echo "Output directory already exists: ${OUT_ROOT}" >&2
-  echo "Use a new directory, for example: ./处理流程.sh datasets/$(date +%F)-processed-v2" >&2
+  echo "Use a new directory, for example: ./process.sh datasets/$(date +%F)-processed-v2" >&2
   exit 1
 fi
 
@@ -26,6 +26,7 @@ python3 cvat_to_muge.py \
     cvat_data/task_2026-04-29-2 \
     cvat_data/task_2026-05-07 \
     cvat_data/task_2026-05-11 \
+  --text-mode boxes \
   --output-dir "${CVAT_DATASET}"
 
 # 2. 过滤过长文本，并同步过滤不再被引用的图片。
@@ -34,7 +35,8 @@ python3 filter_long_texts.py \
   --out-dir "${CVAT_NO_LONG_DATASET}" \
   --max-len 55
 
-# 3. 从 pos/neg 采集数据中抽取所有 pos_images，并按 query 目录切分 train/valid。
+# 3. 从 pos/neg 采集数据中抽取所有 pos_images，并保留 neg_images 作为 hard-negative 元数据。
+#    按 query 目录切分 train/valid，避免同一 query 的正图跨 split 泄漏。
 # 后续 merge_pos_to_cvat.py 会重新映射 ID，所以这里从 0 开始即可。
 python3 build_muge_all_pos.py \
   --root /home/zy/Downloads/chinese_clip/pos_and_neg_datasets/ \

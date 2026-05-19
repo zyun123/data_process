@@ -11,6 +11,7 @@ Output files:
 
 import argparse
 import base64
+import hashlib
 import json
 import random
 from io import BytesIO
@@ -36,9 +37,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--valid-ratio", type=float, default=0.1, help="Validation split ratio (0~1).")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for split.")
     parser.add_argument(
+        "--text-mode",
+        choices=("boxes", "image"),
+        default="boxes",
+        help=(
+            "boxes writes one text record per annotated box/query; image joins all "
+            "texts from one image into a caption-like record."
+        ),
+    )
+    parser.add_argument(
         "--caption-joiner",
         default="；",
-        help="String used to join multiple boxes' texts in one image.",
+        help="String used to join multiple boxes' texts when --text-mode image.",
     )
     parser.add_argument(
         "--keep-empty",
@@ -55,6 +65,10 @@ def encode_image_to_b64(image_path: Path) -> str:
         fmt = img.format if img.format else "JPEG"
         img.save(img_buffer, format=fmt)
     return base64.b64encode(img_buffer.getvalue()).decode("utf-8")
+
+
+def image_content_hash(image_path: Path) -> str:
+    return hashlib.sha1(image_path.read_bytes()).hexdigest()
 
 
 def normalize_text(value) -> str:
@@ -120,17 +134,26 @@ def load_coco(input_dir: Path) -> List[Dict]:
     return samples
 
 
-def build_samples(input_dirs: List[Path], joiner: str, keep_empty: bool) -> List[Dict]:
+def build_samples(input_dirs: List[Path], text_mode: str, joiner: str, keep_empty: bool) -> List[Dict]:
     merged: List[Dict] = []
     for d in input_dirs:
         merged.extend(load_coco(d))
 
     final = []
     for item in merged:
-        caption = joiner.join(item["texts"]).strip()
-        if not caption and not keep_empty:
+        texts = [text for text in item["texts"] if text]
+        if text_mode == "image":
+            caption = joiner.join(texts).strip()
+            if not caption and not keep_empty:
+                continue
+            final.append({"uid": item["uid"], "image_path": item["image_path"], "texts": [caption]})
             continue
-        final.append({"uid": item["uid"], "image_path": item["image_path"], "caption": caption})
+
+        if not texts and keep_empty:
+            texts = [""]
+        if not texts:
+            continue
+        final.append({"uid": item["uid"], "image_path": item["image_path"], "texts": texts})
 
     for idx, item in enumerate(final, start=1):
         item["image_id"] = idx
@@ -159,22 +182,49 @@ def split_train_valid(samples: List[Dict], valid_ratio: float, seed: int) -> Tup
     return train, valid
 
 
+def dedupe_samples_by_image(samples: List[Dict]) -> List[Dict]:
+    by_hash: Dict[str, Dict] = {}
+    ordered_hashes: List[str] = []
+
+    for item in samples:
+        image_hash = image_content_hash(item["image_path"])
+        if image_hash not in by_hash:
+            by_hash[image_hash] = {
+                "uid": item["uid"],
+                "image_path": item["image_path"],
+                "texts": [],
+            }
+            ordered_hashes.append(image_hash)
+
+        existing = by_hash[image_hash]
+        seen = set(existing["texts"])
+        for text in item["texts"]:
+            if text not in seen:
+                existing["texts"].append(text)
+                seen.add(text)
+
+    return [by_hash[image_hash] for image_hash in ordered_hashes]
+
+
 def write_split(split_name: str, rows: List[Dict], output_dir: Path) -> None:
     imgs_path = output_dir / f"{split_name}_imgs.tsv"
     texts_path = output_dir / f"{split_name}_texts.jsonl"
 
     with imgs_path.open("w", encoding="utf-8") as f_img, texts_path.open("w", encoding="utf-8") as f_txt:
-        for text_id, row in enumerate(rows):
+        next_text_id = 0
+        for row in rows:
             image_id = row["image_id"]
             b64 = encode_image_to_b64(row["image_path"])
             f_img.write(f"{image_id}\t{b64}\n")
 
-            item = {
-                "text_id": text_id,
-                "text": row["caption"],
-                "image_ids": [image_id],
-            }
-            f_txt.write(json.dumps(item, ensure_ascii=False) + "\n")
+            for text in row["texts"]:
+                item = {
+                    "text_id": next_text_id,
+                    "text": text,
+                    "image_ids": [image_id],
+                }
+                f_txt.write(json.dumps(item, ensure_ascii=False) + "\n")
+                next_text_id += 1
 
 
 def main() -> None:
@@ -183,17 +233,21 @@ def main() -> None:
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    samples = build_samples(input_dirs, args.caption_joiner, args.keep_empty)
+    samples = build_samples(input_dirs, args.text_mode, args.caption_joiner, args.keep_empty)
     if not samples:
         raise RuntimeError("No valid samples found. Check input paths or annotations.")
 
-    train_rows, valid_rows = split_train_valid(samples, args.valid_ratio, args.seed)
+    deduped_samples = dedupe_samples_by_image(samples)
+    for idx, item in enumerate(deduped_samples, start=1):
+        item["image_id"] = idx
+    train_rows, valid_rows = split_train_valid(deduped_samples, args.valid_ratio, args.seed)
     write_split("train", train_rows, output_dir)
     write_split("valid", valid_rows, output_dir)
 
-    print(f"Total samples: {len(samples)}")
-    print(f"Train samples: {len(train_rows)}")
-    print(f"Valid samples: {len(valid_rows)}")
+    print(f"Total images with text: {len(samples)}")
+    print(f"Unique image payloads: {len(deduped_samples)}")
+    print(f"Train images: {len(train_rows)}")
+    print(f"Valid images: {len(valid_rows)}")
     print(f"Output dir: {output_dir}")
 
 
