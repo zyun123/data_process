@@ -151,7 +151,8 @@ if __name__ == "__main__":
     assert os.path.exists(args.resume), "The checkpoint file {} not exists!".format(args.resume)
     # Map model to be loaded to specified single gpu.
     loc = "cuda:{}".format(args.gpu)
-    checkpoint = torch.load(args.resume, map_location='cpu')
+    # checkpoint = torch.load(args.resume, map_location='cpu')
+    checkpoint = torch.load(args.resume, map_location='cpu',weights_only=False)
     start_epoch = checkpoint["epoch"]
     sd = checkpoint["state_dict"]
     if next(iter(sd.items()))[0].startswith('module'):

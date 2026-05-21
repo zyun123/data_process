@@ -139,6 +139,12 @@ def parse_args():
         help="Random mask ratio of patches during finetuning. Default to zero which does not mask any patches.",
     )
     parser.add_argument(
+        "--hard-negative-weight",
+        default=0.0,
+        type=float,
+        help="Weight for extra text-to-hard-negative ranking loss. 0 disables hard-negative training.",
+    )
+    parser.add_argument(
         "--clip-weight-path",
         default=None,
         type=str,

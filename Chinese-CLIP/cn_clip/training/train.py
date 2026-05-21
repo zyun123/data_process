@@ -18,7 +18,38 @@ from cn_clip.clip.model import convert_state_dict
 def is_master(args):
     return args.rank == 0
 
-def get_loss(model, images, texts, loss_img, loss_txt, args, accum_image_features=None, accum_text_features=None, accum_idx=-1, teacher_model=None, teacher_accum_image_features=None):
+def get_hard_negative_loss(model, text_features, positive_image_features, hard_negative_images, hard_negative_mask, logit_scale):
+    if hard_negative_images is None or hard_negative_mask is None:
+        return None
+    valid_mask = hard_negative_mask.bool()
+    if not torch.any(valid_mask):
+        return None
+
+    hard_negative_features = model(hard_negative_images, None)
+    hard_negative_features = hard_negative_features / hard_negative_features.norm(dim=-1, keepdim=True)
+    positive_scores = torch.sum(text_features * positive_image_features, dim=-1)
+    hard_negative_scores = torch.sum(text_features * hard_negative_features, dim=-1)
+    logits = logit_scale * torch.stack([positive_scores, hard_negative_scores], dim=1)
+    logits = logits[valid_mask]
+    labels = torch.zeros(logits.shape[0], dtype=torch.long, device=logits.device)
+    return F.cross_entropy(logits, labels)
+
+
+def get_loss(
+    model,
+    images,
+    texts,
+    loss_img,
+    loss_txt,
+    args,
+    accum_image_features=None,
+    accum_text_features=None,
+    accum_idx=-1,
+    teacher_model=None,
+    teacher_accum_image_features=None,
+    hard_negative_images=None,
+    hard_negative_mask=None,
+):
     if args.accum_freq == 1:
         image_features, text_features, logit_scale = model(images, texts, args.mask_ratio)
 
@@ -123,7 +154,22 @@ def get_loss(model, images, texts, loss_img, loss_txt, args, accum_image_feature
     if args.distillation:
         total_loss += kd_loss * args.kd_loss_weight
 
-    return total_loss, acc
+    hard_neg_loss = None
+    if args.hard_negative_weight > 0:
+        if args.accum_freq > 1:
+            raise NotImplementedError("--hard-negative-weight currently requires --accum-freq=1.")
+        hard_neg_loss = get_hard_negative_loss(
+            model,
+            text_features,
+            image_features,
+            hard_negative_images,
+            hard_negative_mask,
+            logit_scale,
+        )
+        if hard_neg_loss is not None:
+            total_loss = total_loss + args.hard_negative_weight * hard_neg_loss
+
+    return total_loss, acc, hard_neg_loss
 
 def freeze_vision_bn(args, model):
     # freeze bn running mean and variance
@@ -174,11 +220,18 @@ def train(model, data, epoch, optimizer, scaler, scheduler, args, global_trained
 
         optimizer.zero_grad()
 
-        images, texts, eos_indices = batch
+        if args.hard_negative_weight > 0:
+            images, texts, eos_indices, hard_negative_images, hard_negative_mask = batch
+        else:
+            images, texts, eos_indices = batch
+            hard_negative_images, hard_negative_mask = None, None
 
         images = images.cuda(args.local_device_rank, non_blocking=True)
         texts = texts.cuda(args.local_device_rank, non_blocking=True)
         eos_indices = eos_indices.cuda(args.local_device_rank, non_blocking=True)
+        if hard_negative_images is not None:
+            hard_negative_images = hard_negative_images.cuda(args.local_device_rank, non_blocking=True)
+            hard_negative_mask = hard_negative_mask.cuda(args.local_device_rank, non_blocking=True)
 
         data_time = time.time() - end
 
@@ -189,18 +242,56 @@ def train(model, data, epoch, optimizer, scaler, scheduler, args, global_trained
             if args.precision == "amp":
                 with autocast():
                     if args.distillation:
-                        total_loss, acc = get_loss(model, images, texts, loss_img, loss_txt, args, teacher_model=teacher_model)
+                        total_loss, acc, hard_neg_loss = get_loss(
+                            model,
+                            images,
+                            texts,
+                            loss_img,
+                            loss_txt,
+                            args,
+                            teacher_model=teacher_model,
+                            hard_negative_images=hard_negative_images,
+                            hard_negative_mask=hard_negative_mask,
+                        )
                     else:
-                        total_loss, acc = get_loss(model, images, texts, loss_img, loss_txt, args)
+                        total_loss, acc, hard_neg_loss = get_loss(
+                            model,
+                            images,
+                            texts,
+                            loss_img,
+                            loss_txt,
+                            args,
+                            hard_negative_images=hard_negative_images,
+                            hard_negative_mask=hard_negative_mask,
+                        )
                     scaler.scale(total_loss).backward()
                     scaler.step(optimizer)
                 scaler.update()
 
             else:
                 if args.distillation:
-                    total_loss, acc = get_loss(model, images, texts, loss_img, loss_txt, args, teacher_model=teacher_model)
+                    total_loss, acc, hard_neg_loss = get_loss(
+                        model,
+                        images,
+                        texts,
+                        loss_img,
+                        loss_txt,
+                        args,
+                        teacher_model=teacher_model,
+                        hard_negative_images=hard_negative_images,
+                        hard_negative_mask=hard_negative_mask,
+                    )
                 else:
-                    total_loss, acc = get_loss(model, images, texts, loss_img, loss_txt, args)
+                    total_loss, acc, hard_neg_loss = get_loss(
+                        model,
+                        images,
+                        texts,
+                        loss_img,
+                        loss_txt,
+                        args,
+                        hard_negative_images=hard_negative_images,
+                        hard_negative_mask=hard_negative_mask,
+                    )
                 total_loss.backward()
                 optimizer.step()
         else:
@@ -238,9 +329,9 @@ def train(model, data, epoch, optimizer, scaler, scheduler, args, global_trained
                     # `total_loss` and `acc` are coarsely sampled, taking only the last result in the loop.
                     # Although each result should be the same in theory, it will be slightly different in practice
                     if args.distillation:
-                        total_loss, acc = get_loss(model, images, texts, loss_img, loss_txt, args, accum_image_features, accum_text_features, j, teacher_model, teacher_accum_image_features)
+                        total_loss, acc, hard_neg_loss = get_loss(model, images, texts, loss_img, loss_txt, args, accum_image_features, accum_text_features, j, teacher_model, teacher_accum_image_features)
                     else:
-                        total_loss, acc = get_loss(model, images, texts, loss_img, loss_txt, args, accum_image_features, accum_text_features, j)
+                        total_loss, acc, hard_neg_loss = get_loss(model, images, texts, loss_img, loss_txt, args, accum_image_features, accum_text_features, j)
                 if args.precision == "amp":
                     scaler.scale(total_loss).backward()
                 else:
@@ -276,6 +367,7 @@ def train(model, data, epoch, optimizer, scaler, scheduler, args, global_trained
                 f"Global Steps: {step + 1}/{args.max_steps} | " +
                 f"Train Epoch: {epoch + 1} [{num_samples}/{samples_per_epoch} ({percent_complete:.0f}%)] | " +
                 f"Loss: {total_loss.item():.6f} | " +
+                (f"HardNeg Loss: {hard_neg_loss.item():.6f} | " if hard_neg_loss is not None else "") +
                 (f"Image2Text Acc: {acc['i2t'].item() * 100:.2f} | " if args.report_training_batch_acc else "") +
                 (f"Text2Image Acc: {acc['t2i'].item() * 100:.2f} | " if args.report_training_batch_acc else "") +
                 f"Data Time: {data_time:.3f}s | " +

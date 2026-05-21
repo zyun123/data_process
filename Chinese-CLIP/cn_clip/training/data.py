@@ -35,7 +35,16 @@ def _preprocess_text(text):
 
 
 class LMDBDataset(Dataset):
-    def __init__(self, lmdb_path, split="val", max_txt_length=64, use_augment=False, resolution=224):
+    def __init__(
+        self,
+        lmdb_path,
+        split="val",
+        max_txt_length=64,
+        use_augment=False,
+        resolution=224,
+        use_hard_negatives=False,
+        hard_negative_seed=123,
+    ):
         self.lmdb_path = lmdb_path
 
         # assert LMDB directories exist
@@ -50,6 +59,42 @@ class LMDBDataset(Dataset):
         self.txn_pairs = self.env_pairs.begin(buffers=True)
         self.env_imgs = lmdb.open(lmdb_imgs, readonly=True, create=False, lock=False, readahead=False, meminit=False)
         self.txn_imgs = self.env_imgs.begin(buffers=True)
+
+        self.use_hard_negatives = use_hard_negatives
+        self.hard_negative_seed = hard_negative_seed
+        self.env_hard_neg_pairs = None
+        self.txn_hard_neg_pairs = None
+        self.env_hard_neg_imgs = None
+        self.txn_hard_neg_imgs = None
+        if self.use_hard_negatives:
+            lmdb_hard_neg_pairs = os.path.join(lmdb_path, "hard_neg_pairs")
+            lmdb_hard_neg_imgs = os.path.join(lmdb_path, "hard_neg_imgs")
+            if not os.path.isdir(lmdb_hard_neg_pairs) or not os.path.isdir(lmdb_hard_neg_imgs):
+                logging.warning(
+                    "Hard negatives are enabled, but %s or %s is missing. Hard-negative loss will be skipped.",
+                    lmdb_hard_neg_pairs,
+                    lmdb_hard_neg_imgs,
+                )
+                self.use_hard_negatives = False
+            else:
+                self.env_hard_neg_pairs = lmdb.open(
+                    lmdb_hard_neg_pairs,
+                    readonly=True,
+                    create=False,
+                    lock=False,
+                    readahead=False,
+                    meminit=False,
+                )
+                self.txn_hard_neg_pairs = self.env_hard_neg_pairs.begin(buffers=True)
+                self.env_hard_neg_imgs = lmdb.open(
+                    lmdb_hard_neg_imgs,
+                    readonly=True,
+                    create=False,
+                    lock=False,
+                    readahead=False,
+                    meminit=False,
+                )
+                self.txn_hard_neg_imgs = self.env_hard_neg_imgs.begin(buffers=True)
 
         # fetch number of pairs and images
         self.number_samples = int(self.txn_pairs.get(key=b'num_samples').tobytes().decode('utf-8'))
@@ -95,6 +140,10 @@ class LMDBDataset(Dataset):
             self.env_pairs.close()
         if hasattr(self, 'env_imgs'):
             self.env_imgs.close()
+        if getattr(self, "env_hard_neg_pairs", None) is not None:
+            self.env_hard_neg_pairs.close()
+        if getattr(self, "env_hard_neg_imgs", None) is not None:
+            self.env_hard_neg_imgs.close()
 
     def __len__(self):
         return self.dataset_len
@@ -112,7 +161,25 @@ class LMDBDataset(Dataset):
 
         text = tokenize([_preprocess_text(raw_text)], context_length=self.max_txt_length)[0]
         eos_index = text.numpy().tolist().index(_tokenizer.vocab['[SEP]'])
-        return image, text, eos_index
+        if not self.use_hard_negatives:
+            return image, text, eos_index
+
+        hard_negative_image = torch.zeros_like(image)
+        hard_negative_mask = torch.tensor(0, dtype=torch.long)
+        hard_neg_bytes = self.txn_hard_neg_pairs.get("{}".format(text_id).encode("utf-8"))
+        if hard_neg_bytes is not None:
+            hard_neg_image_ids = pickle.loads(hard_neg_bytes.tobytes())
+            if hard_neg_image_ids:
+                hard_neg_offset = (sample_index + self.hard_negative_seed) % len(hard_neg_image_ids)
+                hard_neg_image_id = hard_neg_image_ids[hard_neg_offset]
+                hard_neg_b64_bytes = self.txn_hard_neg_imgs.get("{}".format(hard_neg_image_id).encode("utf-8"))
+                if hard_neg_b64_bytes is not None:
+                    hard_neg_b64 = hard_neg_b64_bytes.tobytes().decode(encoding="utf8", errors="ignore")
+                    hard_negative_image = Image.open(BytesIO(base64.urlsafe_b64decode(hard_neg_b64)))
+                    hard_negative_image = self.transform(hard_negative_image)
+                    hard_negative_mask = torch.tensor(1, dtype=torch.long)
+
+        return image, text, eos_index, hard_negative_image, hard_negative_mask
 
 
 def pad_dataset(dataset, global_batch_size):
@@ -150,6 +217,8 @@ def get_dataset(args, is_train, max_txt_length=64, epoch_id=0):
         max_txt_length=max_txt_length,
         use_augment=args.use_augment if is_train else False,
         resolution=fetch_resolution(args.vision_model),
+        use_hard_negatives=is_train and args.hard_negative_weight > 0,
+        hard_negative_seed=args.seed + epoch_id,
     ) 
 
     # pad the dataset splits using the beginning samples in the LMDB files

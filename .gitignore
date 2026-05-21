@@ -2,3 +2,11 @@ datasets/
 cvat_data/
 datasets_0517/
 __pycache__/
+*.pt
+*.log
+experiments/
+
+*.jpg
+collection_rounds/
+final_eval/
+*.tar.gz

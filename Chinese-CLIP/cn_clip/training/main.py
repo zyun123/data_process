@@ -134,7 +134,11 @@ def main():
     find_unused_parameters = torch_version_str_compare_lessequal(torch.__version__, "1.8.0")
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_device_rank], find_unused_parameters=find_unused_parameters)
     # Have to set this when activating grad checkpointing in Pytorch >= 2.0.0
-    if args.grad_checkpointing and not torch_version_str_compare_lessequal(torch.__version__, "1.14.0"):
+    if (
+        args.grad_checkpointing
+        and args.hard_negative_weight <= 0
+        and not torch_version_str_compare_lessequal(torch.__version__, "1.14.0")
+    ):
         model._set_static_graph()
 
     if args.precision == "fp16":
@@ -306,10 +310,6 @@ def main():
                 # fp16 is needed in flash attention
                 with torch.cuda.amp.autocast():
                     evaluate(model, data, epoch, args, steps)
-
-        # if exists next epoch, reload the dataset and dataloader for the next epoch
-        if epoch + 1 < args.max_epochs:
-            data = get_data(args, epoch_id=epoch + 1, max_txt_length=args.context_length)
 
         # Saving checkpoints.
         if args.should_save and num_steps_this_epoch > 0:

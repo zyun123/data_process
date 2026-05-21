@@ -293,6 +293,8 @@ def main() -> None:
 
     cvat_train_texts, cvat_train_imgs = read_split(cvat_dir, "train", required=True)
     cvat_valid_texts, cvat_valid_imgs = read_split(cvat_dir, "valid", required=True)
+    cvat_train_hard_negs, cvat_train_hard_neg_imgs = read_hard_negative_split(cvat_dir, "train")
+    cvat_valid_hard_negs, cvat_valid_hard_neg_imgs = read_hard_negative_split(cvat_dir, "valid")
     pos_train_texts, pos_train_imgs = read_split(pos_dir, "train", required=True)
     pos_valid_texts, pos_valid_imgs = read_split(pos_dir, "valid", required=False)
     pos_train_hard_negs, pos_train_hard_neg_imgs = read_hard_negative_split(pos_dir, "train")
@@ -301,7 +303,11 @@ def main() -> None:
     all_pos_imgs = [*pos_train_imgs, *pos_valid_imgs]
     image_id_map = build_image_id_map(all_pos_imgs, max_dataset_image_id(cvat_dir) + 1)
     all_hard_neg_imgs = [*pos_train_hard_neg_imgs, *pos_valid_hard_neg_imgs]
-    next_hard_neg_image_id = max(image_id_map.values(), default=max_dataset_image_id(cvat_dir)) + 1
+    existing_hard_neg_max_id = max_image_id([*cvat_train_hard_neg_imgs, *cvat_valid_hard_neg_imgs])
+    next_hard_neg_image_id = max(
+        max(image_id_map.values(), default=max_dataset_image_id(cvat_dir)),
+        existing_hard_neg_max_id,
+    ) + 1
     hard_neg_image_id_map = build_image_id_map(all_hard_neg_imgs, next_hard_neg_image_id)
     train_text_id_map = build_text_id_map(pos_train_texts, max_text_id(cvat_train_texts) + 1)
     valid_text_id_map = build_text_id_map(pos_valid_texts, max_text_id(cvat_valid_texts) + 1)
@@ -333,6 +339,21 @@ def main() -> None:
         hard_neg_image_id_map,
         "valid",
     )
+    output_train_hard_negs = [*cvat_train_hard_negs, *remapped_train_hard_negs]
+    output_valid_hard_negs = [*cvat_valid_hard_negs, *remapped_valid_hard_negs]
+    output_train_hard_neg_imgs = [
+        *cvat_train_hard_neg_imgs,
+        *[
+            (hard_neg_image_id_map[old_id], image_b64) for old_id, image_b64 in pos_train_hard_neg_imgs
+        ],
+    ]
+    output_valid_hard_neg_imgs = [
+        *cvat_valid_hard_neg_imgs,
+        *[
+            (hard_neg_image_id_map[old_id], image_b64) for old_id, image_b64 in pos_valid_hard_neg_imgs
+        ],
+    ]
+
     remapped_train_hard_neg_imgs = [
         (hard_neg_image_id_map[old_id], image_b64) for old_id, image_b64 in pos_train_hard_neg_imgs
     ]
@@ -348,14 +369,14 @@ def main() -> None:
     (
         output_valid_texts,
         output_valid_imgs,
-        remapped_valid_hard_negs,
+        output_valid_hard_negs,
         duplicate_valid_images_removed,
         duplicate_valid_texts_removed,
     ) = drop_valid_images_duplicated_in_train(
         output_train_imgs,
         output_valid_texts,
         output_valid_imgs,
-        remapped_valid_hard_negs,
+        output_valid_hard_negs,
     )
 
     validate_split(output_train_texts, output_train_imgs, "train")
@@ -366,10 +387,10 @@ def main() -> None:
     write_tsv(out_dir / "train_imgs.tsv", output_train_imgs)
     write_jsonl(out_dir / "valid_texts.jsonl", output_valid_texts)
     write_tsv(out_dir / "valid_imgs.tsv", output_valid_imgs)
-    write_jsonl(out_dir / "train_hard_negatives.jsonl", remapped_train_hard_negs)
-    write_tsv(out_dir / "train_hard_neg_imgs.tsv", remapped_train_hard_neg_imgs)
-    write_jsonl(out_dir / "valid_hard_negatives.jsonl", remapped_valid_hard_negs)
-    write_tsv(out_dir / "valid_hard_neg_imgs.tsv", remapped_valid_hard_neg_imgs)
+    write_jsonl(out_dir / "train_hard_negatives.jsonl", output_train_hard_negs)
+    write_tsv(out_dir / "train_hard_neg_imgs.tsv", output_train_hard_neg_imgs)
+    write_jsonl(out_dir / "valid_hard_negatives.jsonl", output_valid_hard_negs)
+    write_tsv(out_dir / "valid_hard_neg_imgs.tsv", output_valid_hard_neg_imgs)
 
     print(f"wrote output dir: {out_dir}")
     print(
@@ -381,8 +402,14 @@ def main() -> None:
     )
     print(f"valid images: {len(cvat_valid_imgs)} + {len(remapped_pos_valid_imgs)} = {len(output_valid_imgs)}")
     print(
-        f"hard negatives: train {len(remapped_train_hard_negs)} texts/{len(remapped_train_hard_neg_imgs)} images, "
-        f"valid {len(remapped_valid_hard_negs)} texts/{len(remapped_valid_hard_neg_imgs)} images"
+        f"hard negatives: train {len(cvat_train_hard_negs)} + {len(remapped_train_hard_negs)} = "
+        f"{len(output_train_hard_negs)} texts/"
+        f"{len(cvat_train_hard_neg_imgs)} + {len(remapped_train_hard_neg_imgs)} = "
+        f"{len(output_train_hard_neg_imgs)} images, "
+        f"valid {len(cvat_valid_hard_negs)} + {len(remapped_valid_hard_negs)} = "
+        f"{len(output_valid_hard_negs)} texts/"
+        f"{len(cvat_valid_hard_neg_imgs)} + {len(remapped_valid_hard_neg_imgs)} = "
+        f"{len(output_valid_hard_neg_imgs)} images"
     )
     if duplicate_valid_images_removed:
         print(

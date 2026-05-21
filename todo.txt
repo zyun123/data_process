@@ -1,0 +1,78 @@
+第一优先级：让 hard negatives 进入训练
+
+  当前训练是普通 CLIP in-batch negative。要让模型学会区分“红上衣 vs 红车”“黑摩托 vs 黑电动车”，必须让这些相似错图在同一个 batch 里出现。
+
+  最实用的做法有两个：
+
+  - 简单版：把 train_hard_neg_imgs.tsv 合并进训练图片池，但不作为正例引用。然后改 sampler，让每个 batch 里尽量包含当前 query 的 hard negative 图。
+  - 更强版：改 loss，额外加 hard-negative ranking loss，让正图分数显式高于 hard neg。
+
+  如果只用官方训练脚本，不改 sampler/loss，neg_images 基本不会发挥训练价值。
+
+  第二优先级：建立真正的 benchmark
+
+  你现在应该固定三套验证：
+
+  valid_normal      普通随机 valid，看整体召回
+  valid_hard        hard negative valid，看相似错图
+  valid_bucket      按属性分桶，看具体短板
+
+  分桶至少包括：
+
+  上衣颜色
+  裤子颜色
+  头盔颜色
+  背包颜色
+  电动车颜色
+  摩托车/电动车/三轮车
+  挡风被颜色
+  上衣 vs 车体颜色
+  头盔 vs 上衣颜色
+  多人/载人干扰
+
+  以后每次训练都看这些 bucket，而不是只看 mean recall。
+
+  第三优先级：数据补采要按失败闭环来
+
+  不是“多收点图”就好，而是：
+
+  评估失败 query -> 找失败原因 -> 补正例 + hard negative -> 重新训练 -> 再评估
+
+  比如当前最该补的是：
+
+  黑头盔 + 白上衣 + 红电动车
+  黑色电动车 vs 黑色摩托车
+  电动车颜色 vs 上衣颜色
+  黑上衣白裤子 vs 白上衣黑裤子
+  载人/多人主体干扰
+
+  每个 query 不只收正图，还要配错得很像的负图。
+
+  第四优先级：训练策略
+
+  你这次训练结果显示：
+
+  - epoch1 到 epoch3 有提升；
+  - epoch4/5 基本平台；
+  - epoch5 不一定比 epoch3/4 好。
+
+  下一轮我会这样跑 grid：
+
+  lr=1e-6, epochs=5
+  lr=3e-6, epochs=5
+  lr=1e-5, epochs=3
+
+  第五优先级：清洗 query
+
+  你现在 valid miss 里有明显问题：
+
+  戴着眼睛 -> 戴着眼镜
+  白发裤子 -> 白色裤子
+  学服 -> 校服
+
+  这种文本会让评估和训练都变脏。公安文搜图 query 应该更像：
+
+
+  少写背景，少写不稳定细节。
+
+  结论：下一步最重要的不是继续普通 fine-tune，而是 把 hard negatives 接进训练，并建立分桶 benchmark。只靠现在的官方 MUGE 训练流程，你很难把模型推到最优，因为它没有真正针对你的难例学习。

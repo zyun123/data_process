@@ -33,12 +33,16 @@ def find_neg_images(sample_dir: Path):
             return images
     return []
 
-
 def iter_sample_dirs(root: Path):
     return sorted(
-        [p for p in root.iterdir() if p.is_dir() and p.name.isdigit()],
-        key=lambda p: int(p.name),
+        [
+            p
+            for p in root.iterdir()
+            if p.is_dir() and ((p / "query.txt").is_file() or (p / "pos_images").is_dir())
+        ],
+        key=lambda p: p.name,
     )
+
 
 
 def encode_image(path: Path):

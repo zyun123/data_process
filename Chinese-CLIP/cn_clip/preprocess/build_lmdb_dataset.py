@@ -94,4 +94,53 @@ if __name__ == "__main__":
             env_img.close()                
         print("Finished serializing {} {} split images into {}.".format(write_idx, split, lmdb_img))
 
+        # Optional hard-negative image payloads and text-to-negative mapping.
+        hard_neg_annotation_path = os.path.join(args.data_dir, "{}_hard_negatives.jsonl".format(split))
+        hard_neg_base64_path = os.path.join(args.data_dir, "{}_hard_neg_imgs.tsv".format(split))
+        if os.path.exists(hard_neg_annotation_path) and os.path.exists(hard_neg_base64_path):
+            lmdb_hard_neg_imgs = os.path.join(lmdb_split_dir, "hard_neg_imgs")
+            env_hard_neg_imgs = lmdb.open(lmdb_hard_neg_imgs, map_size=1024**4)
+            txn_hard_neg_imgs = env_hard_neg_imgs.begin(write=True)
+
+            with open(hard_neg_base64_path, "r", encoding="utf-8") as fin_hard_neg_imgs:
+                write_idx = 0
+                for line in tqdm(fin_hard_neg_imgs):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    image_id, b64 = line.split("\t")
+                    txn_hard_neg_imgs.put(key="{}".format(image_id).encode("utf-8"), value=b64.encode("utf-8"))
+                    write_idx += 1
+                    if write_idx % 1000 == 0:
+                        txn_hard_neg_imgs.commit()
+                        txn_hard_neg_imgs = env_hard_neg_imgs.begin(write=True)
+                txn_hard_neg_imgs.put(key=b"num_images", value="{}".format(write_idx).encode("utf-8"))
+                txn_hard_neg_imgs.commit()
+                env_hard_neg_imgs.close()
+            print("Finished serializing {} {} split hard-negative images into {}.".format(write_idx, split, lmdb_hard_neg_imgs))
+
+            lmdb_hard_neg_pairs = os.path.join(lmdb_split_dir, "hard_neg_pairs")
+            env_hard_neg_pairs = lmdb.open(lmdb_hard_neg_pairs, map_size=1024**4)
+            txn_hard_neg_pairs = env_hard_neg_pairs.begin(write=True)
+
+            with open(hard_neg_annotation_path, "r", encoding="utf-8") as fin_hard_negs:
+                write_idx = 0
+                for line in tqdm(fin_hard_negs):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    for field in ("text_id", "negative_image_ids"):
+                        assert field in obj, "Field {} does not exist in hard-negative annotation.".format(field)
+                    dump = pickle.dumps([int(image_id) for image_id in obj["negative_image_ids"]])
+                    txn_hard_neg_pairs.put(key="{}".format(obj["text_id"]).encode("utf-8"), value=dump)
+                    write_idx += 1
+                    if write_idx % 5000 == 0:
+                        txn_hard_neg_pairs.commit()
+                        txn_hard_neg_pairs = env_hard_neg_pairs.begin(write=True)
+                txn_hard_neg_pairs.put(key=b"num_texts", value="{}".format(write_idx).encode("utf-8"))
+                txn_hard_neg_pairs.commit()
+                env_hard_neg_pairs.close()
+            print("Finished serializing {} {} split hard-negative text mappings into {}.".format(write_idx, split, lmdb_hard_neg_pairs))
+
     print("done!")

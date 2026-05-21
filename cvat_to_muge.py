@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Output dataset directory, e.g. datasets/MUGE_custom",
     )
-    parser.add_argument("--valid-ratio", type=float, default=0.1, help="Validation split ratio (0~1).")
+    parser.add_argument("--valid-ratio", type=float, default=0.3, help="Validation split ratio (0~1).")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for split.")
     parser.add_argument(
         "--text-mode",
