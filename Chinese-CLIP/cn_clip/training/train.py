@@ -187,6 +187,7 @@ def train(model, data, epoch, optimizer, scaler, scheduler, args, global_trained
         freeze_vision_bn(args, model)
 
     dataloader, sampler = data['train'].dataloader,  data['train'].sampler
+    train_dataset = data['train'].dataset
 
     loss_img = nn.CrossEntropyLoss()
     loss_txt = nn.CrossEntropyLoss()
@@ -196,6 +197,10 @@ def train(model, data, epoch, optimizer, scaler, scheduler, args, global_trained
 
     if sampler is not None:
         sampler.set_epoch(epoch)
+    if getattr(train_dataset, "use_hard_negatives", False):
+        train_dataset.hard_negative_seed = args.seed + epoch
+        if is_master(args):
+            logging.info("Hard-negative sampling seed for epoch %d: %d", epoch + 1, train_dataset.hard_negative_seed)
 
     num_steps_per_epoch = dataloader.num_batches // args.accum_freq
     data_iter = iter(dataloader)

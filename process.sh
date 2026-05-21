@@ -6,13 +6,13 @@ OUT_ROOT="${1:-datasets/$(date +%F)-processed}"
 CVAT_DATASET="${OUT_ROOT}/cvat_datasets"
 CVAT_NO_LONG_DATASET="${OUT_ROOT}/cvat_no_long_datasets"
 POS_DATASET="${OUT_ROOT}/pos_datasets"
-MERGED_DATASET="${OUT_ROOT}/cvat_merge_pos_datasets"
 # EXPANDED_DATASET="${OUT_ROOT}/cvat_merge_pos_datasets_expanded_$(date +%F)"
 EXPANDED_DATASET="${OUT_ROOT}/cvat_merge_pos_datasets_expand"
 POS_NEG_ROOT="${POS_NEG_ROOT:-/home/zy/Downloads/chinese_clip/pos_and_neg_datasets/}"
-EXTRA_POS_NEG_ROOT="${EXTRA_POS_NEG_ROOT:-collection_rounds/2026-05-19_priority3_round1}"
-EXTRA_POS_DATASET="${OUT_ROOT}/extra_pos_datasets"
-FINAL_MERGED_DATASET="${MERGED_DATASET}"
+EXTRA_POS_NEG_ROOT="${EXTRA_POS_NEG_ROOT:-}"
+COLLECTION_ROOT="${COLLECTION_ROOT:-collection_rounds}"
+POS_VALID_RATIO="${POS_VALID_RATIO:-0.15}"
+FINAL_MERGED_DATASET="${OUT_ROOT}/cvat_pos_stratified_datasets"
 CLEANED_DATASET="${OUT_ROOT}/cvat_merge_cleaned_datasets"
 
 if [[ -e "${OUT_ROOT}" ]]; then
@@ -24,7 +24,8 @@ fi
 mkdir -p "${OUT_ROOT}"
 echo "Output root: ${OUT_ROOT}"
 echo "Pos/neg root: ${POS_NEG_ROOT}"
-echo "Extra pos/neg root: ${EXTRA_POS_NEG_ROOT:-<none>}"
+echo "Extra pos/neg root: ${EXTRA_POS_NEG_ROOT:-<auto from ${COLLECTION_ROOT}>}"
+echo "Pos valid ratio: ${POS_VALID_RATIO}"
 
 # 1. CVAT COCO 数据集 -> MUGE 数据集。
 python3 cvat_to_muge.py \
@@ -43,40 +44,43 @@ python3 filter_long_texts.py \
   --out-dir "${CVAT_NO_LONG_DATASET}" \
   --max-len 55
 
-# 3. 从 pos/neg 采集数据中抽取所有 pos_images，并保留 neg_images 作为 hard-negative 元数据。
-#    按 query 目录切分 train/valid，避免同一 query 的正图跨 split 泄漏。
-# 后续 merge_pos_to_cvat.py 会重新映射 ID，所以这里从 0 开始即可。
+POS_ROOT_ARGS=("${POS_NEG_ROOT}")
+if [[ -n "${EXTRA_POS_NEG_ROOT}" && -d "${EXTRA_POS_NEG_ROOT}" ]]; then
+  POS_ROOT_ARGS+=("${EXTRA_POS_NEG_ROOT}")
+elif [[ -n "${EXTRA_POS_NEG_ROOT}" ]]; then
+  echo "Skip extra pos/neg root: ${EXTRA_POS_NEG_ROOT}"
+else
+  while IFS= read -r round_dir; do
+    POS_ROOT_ARGS+=("${round_dir}")
+  done < <(
+    find "${COLLECTION_ROOT}" -mindepth 1 -maxdepth 1 -type d \
+      ! -name '*_output' \
+      | sort
+  )
+fi
+printf 'Use pos/neg roots:\n'
+printf '  %s\n' "${POS_ROOT_ARGS[@]}"
+
+# 3. 从 pos/neg 采集数据中抽取正例和 hard negatives。
+#    按 query 目录做多标签分层切分，避免按图片切分泄漏，同时让衣服/裤子/头盔/鞋/挡风被/车型等桶都有覆盖。
 python3 build_muge_all_pos.py \
-  --root "${POS_NEG_ROOT}" \
+  --root "${POS_ROOT_ARGS[@]}" \
   --out-dir "${POS_DATASET}" \
   --text-start-id 0 \
   --image-start-id 0 \
-  --valid-ratio 0.0 \
+  --valid-ratio "${POS_VALID_RATIO}" \
+  --split-strategy stratified \
+  --min-train-per-label 1 \
   --seed 42
 
-# 4. 将 pos 数据集合并到过滤后的 CVAT 数据集。
-python3 merge_pos_to_cvat.py \
+# 4. 组合最终数据集：
+#    train = CVAT train + pos stratified train
+#    valid = pos stratified holdout，作为训练中的主验证集
+#    valid_cvat_long = CVAT valid，作为长描述辅助评估集
+python3 compose_police_retrieval_dataset.py \
   --cvat-dir "${CVAT_NO_LONG_DATASET}" \
   --pos-dir "${POS_DATASET}" \
-  --out-dir "${MERGED_DATASET}"
-
-if [[ -n "${EXTRA_POS_NEG_ROOT}" && -d "${EXTRA_POS_NEG_ROOT}" ]]; then
-  python3 build_muge_all_pos.py \
-    --root "${EXTRA_POS_NEG_ROOT}" \
-    --out-dir "${EXTRA_POS_DATASET}" \
-    --text-start-id 0 \
-    --image-start-id 0 \
-    --valid-ratio 0.0 \
-    --seed 42
-
-  FINAL_MERGED_DATASET="${OUT_ROOT}/cvat_merge_extra_pos_datasets"
-  python3 merge_pos_to_cvat.py \
-    --cvat-dir "${MERGED_DATASET}" \
-    --pos-dir "${EXTRA_POS_DATASET}" \
-    --out-dir "${FINAL_MERGED_DATASET}"
-else
-  echo "Skip extra pos/neg root: ${EXTRA_POS_NEG_ROOT:-<none>}"
-fi
+  --out-dir "${FINAL_MERGED_DATASET}"
 
 # 5. 清洗已知 query 噪声，避免错别字和脏文本被后续扩充放大。
 python3 clean_query_texts.py \
