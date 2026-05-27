@@ -92,3 +92,40 @@ cp valid_hard_eval_*_misses.jsonl final_eval/
 
 cp valid_cvat_long_eval_*.json final_eval/
 cp valid_cvat_long_bucket_eval_*.csv final_eval/
+
+
+
+
+
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+  GPUS_PER_NODE=4 \
+  BATCH_SIZE=32 \
+  VALID_BATCH_SIZE=32 \
+  HARD_NEGATIVE_WEIGHT=0.025 \
+  EXP_NAME=0526_bs32 \
+  bash run_scripts/custom_muge_finetune_1gpu_epoch_50.sh
+
+
+
+
+
+
+MAX_EPOCHS=10 LR=1e-6 WD=0.001 CUDA_VISIBLE_DEVICES=0,1,2,3 \
+
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+  MAX_EPOCHS=30 \
+  LR=3e-6 \
+  WD=0.01 \
+  GPUS_PER_NODE=4 \
+  BATCH_SIZE=16 \
+  VALID_BATCH_SIZE=16 \
+  HARD_NEGATIVE_WEIGHT=0.025 \
+  EXP_NAME=0527_bs16_lr3e-6_wd001 \
+  bash run_scripts/custom_muge_finetune_4gpu_epoch20.sh

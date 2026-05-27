@@ -369,9 +369,20 @@ def build_split(sample_dirs, text_start_id: int, image_start_id: int, hard_neg_i
     return text_records, image_records, hard_negative_records, hard_negative_image_records, skipped
 
 
-def build_dataset(roots, text_start_id: int, image_start_id: int, valid_ratio: float, seed: int, split_strategy: str, min_train_per_label: int):
+def build_dataset(
+    roots,
+    train_roots,
+    text_start_id: int,
+    image_start_id: int,
+    valid_ratio: float,
+    seed: int,
+    split_strategy: str,
+    min_train_per_label: int,
+):
     sample_dirs = iter_sample_dirs_from_roots(roots)
+    train_only_dirs = iter_sample_dirs_from_roots(train_roots)
     train_dirs, valid_dirs = split_sample_dirs(sample_dirs, valid_ratio, seed, split_strategy, min_train_per_label)
+    train_dirs = [*train_dirs, *train_only_dirs]
 
     train_texts, train_images, train_hard_negs, train_hard_neg_images, train_skipped = build_split(
         train_dirs,
@@ -421,6 +432,13 @@ def main():
         description="Build a MUGE-format pos dataset using all pos_images for each query."
     )
     parser.add_argument("--root", type=Path, nargs="+", default=[Path(".")], help="One or more directories containing query folders.")
+    parser.add_argument(
+        "--train-root",
+        type=Path,
+        nargs="*",
+        default=[],
+        help="Additional query-folder roots forced into train. These roots are never sampled into valid.",
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("muge_all_pos"), help="Output dataset directory.")
     parser.add_argument("--text-start-id", type=int, default=0, help="First text_id.")
     parser.add_argument("--image-start-id", type=int, default=0, help="First image_id.")
@@ -452,6 +470,7 @@ def main():
         skipped,
     ) = build_dataset(
         args.root,
+        args.train_root,
         args.text_start_id,
         args.image_start_id,
         args.valid_ratio,
@@ -480,6 +499,8 @@ def main():
     print(f"wrote valid images: {args.out_dir / 'valid_imgs.tsv'} ({len(valid_images)} lines)")
     print(f"wrote valid hard negatives: {len(valid_hard_negs)} texts, {len(valid_hard_neg_images)} images")
     print(f"source roots: {', '.join(str(root) for root in args.root)}")
+    if args.train_root:
+        print(f"train-only roots: {', '.join(str(root) for root in args.train_root)}")
     print(f"split strategy: {args.split_strategy}, valid_ratio={args.valid_ratio}")
     print(f"train text_id range: {train_texts[0]['text_id']}..{train_texts[-1]['text_id']}")
     print(f"train image_id range: {train_images[0][0]}..{train_images[-1][0]}")

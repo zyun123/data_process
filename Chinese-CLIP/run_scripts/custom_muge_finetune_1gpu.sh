@@ -16,6 +16,11 @@ MASTER_PORT="${MASTER_PORT:-8514}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 VALID_BATCH_SIZE="${VALID_BATCH_SIZE:-${BATCH_SIZE}}"
 
+MAX_EPOCHS="${MAX_EPOCHS:-20}"
+LR="${LR:-3e-6}"
+WD="${WD:-0.01}"
+
+
 export MASTER_ADDR="${MASTER_ADDR:-localhost}"
 export RANK="${RANK:-0}"
 export PYTHONPATH="${PYTHONPATH:-}:$(pwd)/cn_clip"
@@ -68,9 +73,9 @@ torchrun \
   --valid-step-interval=50 \
   --valid-epoch-interval=1 \
   --accum-freq=1 \
-  --lr=3e-6 \
-  --wd=0.001 \
-  --max-epochs=5 \
+  --lr="${LR}" \
+  --wd="${WD}" \
+  --max-epochs="${MAX_EPOCHS}" \
   --hard-negative-weight="${HARD_NEGATIVE_WEIGHT:-0.2}" \
   --vision-model=ViT-B-16 \
   --text-model=RoBERTa-wwm-ext-base-chinese \

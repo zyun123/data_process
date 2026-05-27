@@ -24,7 +24,7 @@ fi
 mkdir -p "${OUT_ROOT}"
 echo "Output root: ${OUT_ROOT}"
 echo "Pos/neg root: ${POS_NEG_ROOT}"
-echo "Extra pos/neg root: ${EXTRA_POS_NEG_ROOT:-<auto from ${COLLECTION_ROOT}>}"
+echo "Train-only extra pos/neg root: ${EXTRA_POS_NEG_ROOT:-<auto from ${COLLECTION_ROOT}>}"
 echo "Pos valid ratio: ${POS_VALID_RATIO}"
 
 # 1. CVAT COCO 数据集 -> MUGE 数据集。
@@ -45,13 +45,14 @@ python3 filter_long_texts.py \
   --max-len 55
 
 POS_ROOT_ARGS=("${POS_NEG_ROOT}")
+TRAIN_ONLY_ROOT_ARGS=()
 if [[ -n "${EXTRA_POS_NEG_ROOT}" && -d "${EXTRA_POS_NEG_ROOT}" ]]; then
-  POS_ROOT_ARGS+=("${EXTRA_POS_NEG_ROOT}")
+  TRAIN_ONLY_ROOT_ARGS+=("${EXTRA_POS_NEG_ROOT}")
 elif [[ -n "${EXTRA_POS_NEG_ROOT}" ]]; then
   echo "Skip extra pos/neg root: ${EXTRA_POS_NEG_ROOT}"
 else
   while IFS= read -r round_dir; do
-    POS_ROOT_ARGS+=("${round_dir}")
+    TRAIN_ONLY_ROOT_ARGS+=("${round_dir}")
   done < <(
     find "${COLLECTION_ROOT}" -mindepth 1 -maxdepth 1 -type d \
       ! -name '*_output' \
@@ -60,10 +61,14 @@ else
 fi
 printf 'Use pos/neg roots:\n'
 printf '  %s\n' "${POS_ROOT_ARGS[@]}"
+if [[ "${#TRAIN_ONLY_ROOT_ARGS[@]}" -gt 0 ]]; then
+  printf 'Use train-only pos/neg roots:\n'
+  printf '  %s\n' "${TRAIN_ONLY_ROOT_ARGS[@]}"
+fi
 
 # 3. 从 pos/neg 采集数据中抽取正例和 hard negatives。
 #    按 query 目录做多标签分层切分，避免按图片切分泄漏，同时让衣服/裤子/头盔/鞋/挡风被/车型等桶都有覆盖。
-python3 build_muge_all_pos.py \
+BUILD_POS_ARGS=(
   --root "${POS_ROOT_ARGS[@]}" \
   --out-dir "${POS_DATASET}" \
   --text-start-id 0 \
@@ -72,6 +77,11 @@ python3 build_muge_all_pos.py \
   --split-strategy stratified \
   --min-train-per-label 1 \
   --seed 42
+)
+if [[ "${#TRAIN_ONLY_ROOT_ARGS[@]}" -gt 0 ]]; then
+  BUILD_POS_ARGS+=(--train-root "${TRAIN_ONLY_ROOT_ARGS[@]}")
+fi
+python3 build_muge_all_pos.py "${BUILD_POS_ARGS[@]}"
 
 # 4. 组合最终数据集：
 #    train = CVAT train + pos stratified train
